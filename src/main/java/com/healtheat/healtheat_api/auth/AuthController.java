@@ -42,9 +42,18 @@ public class AuthController {
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder().subject(user.getId().toString()).issuedAt(now).expiresAt(now.plus(Duration.ofMinutes(30))).build();
         String token = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
-        response.addHeader(HttpHeaders.SET_COOKIE, ResponseCookie.from("access_token", token).httpOnly(true).secure(true)
-            .sameSite(sameSite).path("/").maxAge(Duration.ofMinutes(30)).build().toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, accessCookie(token, Duration.ofMinutes(30)).toString());
         return response(user);
+    }
+    @PostMapping("/api/auth/logout") @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "로그아웃", description = "쿠키를 만료합니다. 이미 발급된 JWT는 만료될 때까지 유효할 수 있습니다.", security = @SecurityRequirement(name = "accessCookie"), parameters = @Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true, description = "GET /api/auth/csrf 응답의 token"))
+    public void logout(HttpServletResponse response) {
+        response.addHeader(HttpHeaders.SET_COOKIE, accessCookie("", Duration.ZERO).toString());
+    }
+    private ResponseCookie accessCookie(String value, Duration maxAge) {
+        // No Domain attribute: issue and expire the same host-only cookie.
+        return ResponseCookie.from("access_token", value).httpOnly(true).secure(true)
+            .sameSite(sameSite).path("/").maxAge(maxAge).build();
     }
     @GetMapping("/api/users/me")
     @Operation(summary = "내 정보 조회", security = @SecurityRequirement(name = "accessCookie"))
