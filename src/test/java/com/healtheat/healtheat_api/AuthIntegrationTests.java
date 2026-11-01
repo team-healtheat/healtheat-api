@@ -48,6 +48,16 @@ class AuthIntegrationTests {
         mvc.perform(get("/api/users/me").cookie(token)).andExpect(status().isOk()).andExpect(jsonPath("$.email").value(email));
         mvc.perform(get("/api/users/me")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/users/me").cookie(new Cookie("access_token", token.getValue()+"broken"))).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/logout").cookie(token)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/auth/logout").cookie(c.cookie()).header("X-XSRF-TOKEN", c.token())).andExpect(status().isUnauthorized());
+        MvcResult logout = mvc.perform(post("/api/auth/logout").cookie(token, c.cookie()).header("X-XSRF-TOKEN", c.token()))
+            .andExpect(status().isNoContent()).andReturn();
+        String expiredCookie = logout.getResponse().getHeaders("Set-Cookie").stream().filter(value -> value.startsWith("access_token=")).findFirst().orElseThrow();
+        assertThat(expiredCookie).contains("access_token=", "Path=/", "Max-Age=0", "HttpOnly", "Secure", "SameSite=Lax").doesNotContain("Domain=");
+        assertThat(setCookie).contains("Path=/").doesNotContain("Domain=");
+        mvc.perform(get("/api/users/me")).andExpect(status().isUnauthorized());
+        // Logging out clears the browser cookie; it does not revoke an already issued JWT.
+        mvc.perform(get("/api/users/me").cookie(token)).andExpect(status().isOk());
     }
     @Test void expiredTokenIsRejected() throws Exception {
         Instant now = Instant.now();

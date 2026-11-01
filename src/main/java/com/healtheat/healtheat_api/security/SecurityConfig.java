@@ -1,7 +1,9 @@
 package com.healtheat.healtheat_api.security;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
-import jakarta.servlet.http.Cookie;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
@@ -38,12 +40,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
                 .anyRequest().authenticated())
-            .oauth2ResourceServer(oauth -> oauth.bearerTokenResolver(request -> {
-                Cookie[] cookies = request.getCookies();
-                if (cookies == null) return null;
-                return Arrays.stream(cookies).filter(cookie -> cookie.getName().equals("access_token"))
-                    .map(Cookie::getValue).findFirst().orElse(null);
-            }).jwt(jwt -> jwt.decoder(decoder)))
+            .exceptionHandling(errors -> errors.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+            .addFilterBefore(new CookieJwtAuthenticationFilter(decoder), UsernamePasswordAuthenticationFilter.class)
             .httpBasic(basic -> basic.disable()).formLogin(form -> form.disable()).logout(logout -> logout.disable())
             .build();
     }
