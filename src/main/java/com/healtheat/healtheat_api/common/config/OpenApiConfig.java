@@ -12,9 +12,9 @@ public class OpenApiConfig {
     @Bean
     OpenAPI openAPI() {
         return new OpenAPI().info(new Info().title("HealthEat API").version("0.1.0")
-            .description("Authentication endpoints and cookie/CSRF integration are planned, not implemented yet."))
+            .description("Call GET /api/auth/csrf, then send its token in X-XSRF-TOKEN with cookies on state-changing requests."))
             .components(new Components().addSecuritySchemes("accessCookie", new SecurityScheme()
                 .type(SecurityScheme.Type.APIKEY).in(SecurityScheme.In.COOKIE).name("access_token")
-                .description("Planned HttpOnly Secure access token cookie; cookie name is provisional.")));
+                .description("HttpOnly Secure access token cookie, issued by login.")));
     }
 }
