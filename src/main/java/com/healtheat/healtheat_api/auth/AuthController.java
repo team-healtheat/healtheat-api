@@ -51,4 +51,3 @@ public class AuthController {
     public AuthDtos.UserResponse me(@AuthenticationPrincipal Jwt jwt) { return response(auth.getUser(Long.parseLong(jwt.getSubject()))); }
     private static AuthDtos.UserResponse response(User user) { return new AuthDtos.UserResponse(user.getId(), user.getEmail(), user.getRole()); }
 }
-

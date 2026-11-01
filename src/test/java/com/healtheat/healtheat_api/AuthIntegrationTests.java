@@ -62,4 +62,3 @@ class AuthIntegrationTests {
     private record Signup(String email, String password, String passwordConfirm) {}
     private record Login(String email, String password) {}
 }
-
