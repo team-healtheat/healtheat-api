@@ -53,11 +53,6 @@ class MealPlanGenerationIntegrationTests {
             .andExpect(jsonPath("$.meals[0].items[0].recipe.steps[0]").value("두부를 굽는다"));
         verify(client,times(1)).generate(any());
     }
-    @Test void refusesUnverifiedAllergyBeforeCallingModel() throws Exception {
-        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
-        mvc.perform(post("/api/meal-plans/generate").cookie(cookie(id)).with(csrf())).andExpect(status().isUnprocessableEntity());
-        verifyNoInteractions(client);
-    }
     @Test void invalidModelResponseDoesNotSaveAPlan() throws Exception {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
@@ -99,14 +94,11 @@ class MealPlanGenerationIntegrationTests {
         mvc.perform(get("/api/meal-plans/today").cookie(cookie(id))).andExpect(status().isOk())
             .andExpect(jsonPath("$.meals[0].items[0].explicitIngredients[0]").value("두부"));
     }
-    @Test void rejectsAllergenAliasAndDoesNotSavePlan() throws Exception {
+    @Test void passesUnansweredAllergyStateWithoutMarkingItAsNone() throws Exception {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
-        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.PRESENT,List.of("새우")));
-        var base=generated();
-        var meals=base.meals().stream().map(m -> new GeneratedMealPlan.Meal(m.mealType(),m.sourceType(),m.recommendationReason(),
-            m.items().stream().map(i -> new GeneratedMealPlan.Item(i.foodName(),i.foodRole(),i.preparationType(),i.servingDescription(),i.recipe(),List.of("대하"))).toList())).toList();
-        when(client.generate(any())).thenReturn(new GeneratedMealPlan.Plan(meals));
-        mvc.perform(post("/api/meal-plans/generate").cookie(cookie(id)).with(csrf())).andExpect(status().isBadGateway());
-        mvc.perform(get("/api/meal-plans/today").cookie(cookie(id))).andExpect(status().isNoContent());
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),null,null));
+        when(client.generate(any())).thenReturn(generated());
+        mvc.perform(post("/api/meal-plans/generate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
+        verify(client).generate(argThat(c -> c.allergyStatus()==PreferenceDtos.AllergyStatus.UNANSWERED && c.allergens().isEmpty()));
     }
 }

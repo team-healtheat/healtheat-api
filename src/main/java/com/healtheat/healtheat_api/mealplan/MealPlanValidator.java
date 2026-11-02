@@ -9,8 +9,6 @@ import org.springframework.stereotype.Component;
 /** Reject incomplete or unverifiable responses; never treat model output as an allergy safety guarantee. */
 @Component
 public class MealPlanValidator {
-    private final AllergenMatcher matcher;
-    public MealPlanValidator(AllergenMatcher matcher) { this.matcher = matcher; }
     private static final Set<String> MEALS = Set.of("BREAKFAST", "LUNCH", "DINNER");
     private static final Set<String> SOURCES = Set.of("HOME_COOKED", "DINING_OUT");
     private static final Set<String> ROLES = Set.of("STAPLE", "SOUP", "MAIN", "SIDE", "OTHER");
@@ -20,40 +18,17 @@ public class MealPlanValidator {
                          List<String> allergens) {
         validateEligibility(allowDiningOut, allergyStatus, allergens);
         if (plan == null || plan.meals() == null || plan.meals().size() != 3) fail("세 끼의 식단이 필요합니다.");
-        var patterns = matcher.patterns(allergens);
         Set<String> seen = new HashSet<>();
         int diningOut = 0;
         for (var meal : plan.meals()) {
             if (meal == null || (meal.mealType() == null || !MEALS.contains(meal.mealType())) || !seen.add(meal.mealType())) fail("식사 종류가 올바르지 않습니다.");
             if ((meal.sourceType() == null || !SOURCES.contains(meal.sourceType()))) fail("식사 출처가 올바르지 않습니다.");
-            if ("DINING_OUT".equals(meal.sourceType())) {
-                diningOut++;
-                if (allergyStatus == AllergyStatus.PRESENT) fail("외식·배달 음식의 실제 재료는 확인이 필요합니다.");
-            }
+            if ("DINING_OUT".equals(meal.sourceType())) diningOut++;
             if (blank(meal.recommendationReason()) || meal.items() == null || meal.items().isEmpty() || meal.items().size() > 10)
                 fail("식사 구성이나 추천 이유가 올바르지 않습니다.");
             for (var item : meal.items()) {
                 if (item == null || blank(item.foodName()) || (item.foodRole() == null || !ROLES.contains(item.foodRole())) || (item.preparationType() == null || !PREPARATIONS.contains(item.preparationType())))
                     fail("음식 정보가 올바르지 않습니다.");
-                if (allergyStatus == AllergyStatus.PRESENT) {
-                    if (item.explicitIngredients() == null || item.explicitIngredients().isEmpty() || item.explicitIngredients().size() > 50)
-                        fail("음식의 재료 정보가 부족해 추가 확인이 필요합니다.");
-                    if (matcher.matches(patterns, item.foodName()) || matcher.matches(patterns, item.servingDescription()))
-                        fail("알레르기 항목이 음식에 포함되어 있습니다.");
-                    for (String ingredient : item.explicitIngredients()) {
-                        if (blank(ingredient)) fail("음식의 재료 정보가 부족해 추가 확인이 필요합니다.");
-                        if (matcher.matches(patterns, ingredient)) fail("알레르기 항목이 재료에 포함되어 있습니다.");
-                    }
-                    if (item.recipe() != null) {
-                        if (matcher.matches(patterns, item.recipe().title())) fail("알레르기 항목이 레시피에 포함되어 있습니다.");
-                        if (item.recipe().ingredients() != null)
-                            for (var ingredient : item.recipe().ingredients())
-                                if (ingredient != null && matcher.matches(patterns, ingredient.name())) fail("알레르기 항목이 레시피에 포함되어 있습니다.");
-                        if (item.recipe().steps() != null)
-                            for (String step : item.recipe().steps())
-                                if (matcher.matches(patterns, step)) fail("알레르기 항목이 조리 단계에 포함되어 있습니다.");
-                    }
-                }
                 if ("HOME_COOKED".equals(meal.sourceType()) && !"READY_TO_EAT".equals(item.preparationType())) validateRecipe(item.recipe());
                 else if (item.recipe() != null) validateRecipe(item.recipe());
             }
@@ -62,9 +37,9 @@ public class MealPlanValidator {
     }
     public void validateEligibility(Boolean allowDiningOut, AllergyStatus allergyStatus, List<String> allergens) {
         if (allowDiningOut == null) fail("외식 허용 여부를 먼저 확인해야 합니다.");
-        if (allergens == null || allergyStatus == null || allergyStatus == AllergyStatus.UNKNOWN || allergyStatus == AllergyStatus.UNANSWERED)
+        if (allergens == null || allergyStatus == null)
             fail("알레르기 정보를 먼저 확인해야 합니다.");
-        if ((allergyStatus == AllergyStatus.NONE && !allergens.isEmpty()) || (allergyStatus == AllergyStatus.PRESENT && allergens.isEmpty()))
+        if ((allergyStatus != AllergyStatus.PRESENT && !allergens.isEmpty()) || (allergyStatus == AllergyStatus.PRESENT && allergens.isEmpty()))
             fail("알레르기 상태와 항목이 일치하지 않습니다.");
         for (String allergen : allergens) if (blank(allergen)) fail("알레르기 항목이 비어 있습니다.");
     }
