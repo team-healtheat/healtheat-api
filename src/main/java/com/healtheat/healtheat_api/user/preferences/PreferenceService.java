@@ -1,39 +1,35 @@
 package com.healtheat.healtheat_api.user.preferences;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.healtheat.healtheat_api.user.User;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class PreferenceService {
-    private static final TypeReference<List<String>> STRINGS = new TypeReference<>() {};
-    private final JdbcTemplate db;
-    private final ObjectMapper json;
-    public PreferenceService(JdbcTemplate db, ObjectMapper json) { this.db = db; this.json = json; }
+    private final EntityManager entities;
+    public PreferenceService(EntityManager entities) { this.entities = entities; }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PreferenceDtos.Response get(long userId) {
-        List<PreferenceDtos.Response> rows = db.query("""
-            SELECT allow_dining_out, liked_foods, disliked_foods, dietary_preferences, allergy_status
-            FROM user_preferences WHERE user_id = ?
-            """, (rs, row) -> new PreferenceDtos.Response((Boolean) rs.getObject("allow_dining_out"),
-                parse(rs.getString("liked_foods")), parse(rs.getString("disliked_foods")),
-                parse(rs.getString("dietary_preferences")), PreferenceDtos.AllergyStatus.valueOf(rs.getString("allergy_status")), List.of()), userId);
-        var value = rows.isEmpty() ? new PreferenceDtos.Response(null, List.of(), List.of(), List.of(),
-            PreferenceDtos.AllergyStatus.UNANSWERED, List.of()) : rows.get(0);
-        List<String> allergens = db.queryForList("SELECT allergen_name FROM user_allergies WHERE user_id = ? AND allergen_name IS NOT NULL ORDER BY id", String.class, userId);
-        return new PreferenceDtos.Response(value.allowDiningOut(), value.likedFoods(), value.dislikedFoods(), value.dietaryPreferences(), value.allergyStatus(), allergens);
+        var preferences = entities.createQuery("select p from UserPreference p where p.userId = :userId", UserPreference.class)
+            .setParameter("userId", userId).getResultStream().findFirst().orElse(null);
+        var allergens = entities.createQuery("select a.allergenName from UserAllergy a where a.userId = :userId and a.allergenName is not null order by a.id", String.class)
+            .setParameter("userId", userId).getResultList();
+        return new PreferenceDtos.Response(preferences == null ? null : preferences.allowDiningOut,
+            preferences == null || preferences.likedFoods == null ? List.of() : preferences.likedFoods,
+            preferences == null || preferences.dislikedFoods == null ? List.of() : preferences.dislikedFoods,
+            preferences == null || preferences.dietaryPreferences == null ? List.of() : preferences.dietaryPreferences,
+            preferences == null ? PreferenceDtos.AllergyStatus.UNANSWERED : preferences.allergyStatus, allergens);
     }
 
     @Transactional
@@ -46,19 +42,21 @@ public class PreferenceService {
         List<String> liked = normalize(request.likedFoods());
         List<String> disliked = normalize(request.dislikedFoods());
         List<String> dietary = normalize(request.dietaryPreferences());
-        if (db.queryForList("SELECT id FROM users WHERE id = ? FOR UPDATE", Long.class, userId).isEmpty())
+        if (entities.find(User.class, userId, LockModeType.PESSIMISTIC_WRITE) == null)
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
-        db.update("INSERT INTO user_preferences(user_id) VALUES (?) ON CONFLICT (user_id) DO NOTHING", userId);
-        if (request.allowDiningOut() != null) db.update("UPDATE user_preferences SET allow_dining_out = ? WHERE user_id = ?", request.allowDiningOut(), userId);
-        if (liked != null) db.update("UPDATE user_preferences SET liked_foods = CAST(? AS jsonb) WHERE user_id = ?", serialize(liked), userId);
-        if (disliked != null) db.update("UPDATE user_preferences SET disliked_foods = CAST(? AS jsonb) WHERE user_id = ?", serialize(disliked), userId);
-        if (dietary != null) db.update("UPDATE user_preferences SET dietary_preferences = CAST(? AS jsonb) WHERE user_id = ?", serialize(dietary), userId);
+        var preference = entities.createQuery("select p from UserPreference p where p.userId = :userId", UserPreference.class)
+            .setParameter("userId", userId).getResultStream().findFirst().orElse(null);
+        if (preference == null) { preference = new UserPreference(userId); entities.persist(preference); }
+        if (request.allowDiningOut() != null) preference.allowDiningOut = request.allowDiningOut();
+        if (liked != null) preference.likedFoods = liked;
+        if (disliked != null) preference.dislikedFoods = disliked;
+        if (dietary != null) preference.dietaryPreferences = dietary;
         if (allergens != null) {
-            db.update("UPDATE user_preferences SET allergy_status = ? WHERE user_id = ?", request.allergyStatus().name(), userId);
-            db.update("DELETE FROM user_allergies WHERE user_id = ?", userId);
-            for (String allergen : allergens)
-                db.update("INSERT INTO user_allergies(user_id, allergen_name, status) VALUES (?, ?, 'PRESENT')", userId, allergen);
+            preference.allergyStatus = request.allergyStatus();
+            entities.createQuery("delete from UserAllergy a where a.userId = :userId").setParameter("userId", userId).executeUpdate();
+            for (String allergen : allergens) entities.persist(new UserAllergy(userId, allergen));
         }
+        entities.flush();
         return get(userId);
     }
     private List<String> normalize(List<String> values) {
@@ -71,14 +69,5 @@ public class PreferenceService {
             result.add(trimmed);
         }
         return result;
-    }
-    private List<String> parse(String value) {
-        if (value == null) return List.of();
-        try { return json.readValue(value, STRINGS); }
-        catch (JsonProcessingException ex) { throw new IllegalStateException("Invalid stored preference format", ex); }
-    }
-    private String serialize(List<String> value) {
-        try { return json.writeValueAsString(value); }
-        catch (JsonProcessingException ex) { throw new IllegalStateException("Could not encode preference data", ex); }
     }
 }
