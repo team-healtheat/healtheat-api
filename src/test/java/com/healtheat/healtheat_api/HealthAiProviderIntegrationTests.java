@@ -35,12 +35,14 @@ class HealthAiProviderIntegrationTests {
     static final ObjectMapper MAPPER = new ObjectMapper();
     static final LinkedBlockingQueue<String> RESPONSES = new LinkedBlockingQueue<>();
     static HttpServer server;
+    static final java.util.concurrent.atomic.AtomicReference<String> REQUEST_MODEL = new java.util.concurrent.atomic.AtomicReference<>();
     static final java.util.concurrent.atomic.AtomicBoolean UNSUPPORTED_FIELDS = new java.util.concurrent.atomic.AtomicBoolean(false);
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry) throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
             var request = MAPPER.readTree(exchange.getRequestBody());
-            if (request.has("temperature") || request.has("top_p") || request.has("logprobs")) UNSUPPORTED_FIELDS.set(true);
+            REQUEST_MODEL.set(request.path("model").asText());
+            if (request.has("temperature") || request.has("top_p") || request.has("top_logprobs") || request.has("logprobs")) UNSUPPORTED_FIELDS.set(true);
             String content = RESPONSES.poll();
             if (content == null) content = "{}";
             if (content.equals("__DELAY__")) {
@@ -48,7 +50,7 @@ class HealthAiProviderIntegrationTests {
                 content = "{}";
             }
             byte[] output = MAPPER.writeValueAsBytes(Map.of("id", "test", "object", "chat.completion", "created", 1,
-                "model", "gpt-5-mini", "choices", List.of(Map.of("index", 0, "message", Map.of("role", "assistant", "content", content), "finish_reason", "stop"))));
+                "model", "gpt-6-luna", "choices", List.of(Map.of("index", 0, "message", Map.of("role", "assistant", "content", content), "finish_reason", "stop"))));
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, output.length);
             exchange.getResponseBody().write(output);
@@ -88,6 +90,7 @@ class HealthAiProviderIntegrationTests {
         mvc.perform(post("/api/health-profiles/analyze").cookie(auth, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
             .contentType(MediaType.APPLICATION_JSON).content("{\"rawText\":\"입력\"}"))
             .andExpect(status().isGatewayTimeout());
+        assertThat(REQUEST_MODEL.get()).isEqualTo("gpt-6-luna");
         assertThat(UNSUPPORTED_FIELDS.get()).isFalse();
         assertThat(db.queryForObject("SELECT count(*) FROM user_health_factors", Integer.class)).isEqualTo(before);
     }

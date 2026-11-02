@@ -20,7 +20,7 @@ spring:
       api-key: ${OPENAI_API_KEY:}
       chat:
         options:
-          model: ${OPENAI_MODEL:gpt-5-mini}
+          model: ${OPENAI_MODEL:gpt-6-luna}
     retry:
       max-attempts: 1
   datasource:

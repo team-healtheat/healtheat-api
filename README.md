@@ -32,9 +32,9 @@ DB 모델은 [데이터 모델](https://app.notion.com/p/40b91ff3ce358165958ecd4
 ```powershell
 $env:AI_CHAT_MODEL = 'openai'
 $env:OPENAI_API_KEY = '발급받은 API 키'
-# OPENAI_MODEL을 생략하면 gpt-5-mini 사용
+# OPENAI_MODEL을 생략하면 gpt-6-luna 사용
 ```
 
 확인한 전체 목록을 `PUT /api/health-profiles`에 `{ "factors": [{ "factorId": null, "name": "혈압 관리", "type": "GOAL", "reportedStatus": "REPORTED", "originalText": "혈압을 관리하고 싶어요", "active": true }] }` 형태로 전송합니다. `factorId`는 분석 결과에서 제공된 경우 유지하고, 없는 새 항목은 null로 보냅니다. `type`과 `reportedStatus`의 구체적 값은 프론트 연동 전에 합의할 임시 문자열 계약입니다. 지원 여부는 요청에서 받지 않습니다. 기존 항목 중 목록에 없는 항목은 삭제하지 않고 비활성화합니다. 빈 목록은 기존 항목을 모두 비활성화합니다. `GET /api/health-profiles`는 로그인한 사용자 자신의 활성·비활성 항목을 반환합니다. 두 변경 요청은 `X-XSRF-TOKEN`과 쿠키가 필요합니다.
 
-AI 응답 형식이나 필수값이 잘못되면 502로 처리하며 저장하지 않습니다. 이 단계에서는 외부 호출을 자동 재시도하지 않습니다. 외부 호출은 연결 5초·응답 45초 제한을 사용하며 타임아웃은 504로 구분합니다. 실제 모델 제공 상태·비용·응답 품질과 타임아웃 값은 배포 전에 검증해야 합니다. GPT-5 mini는 sampling 옵션을 지원하지 않아 Spring AI 기본 temperature 및 top_p를 전송하지 않습니다.
+AI 응답 형식이나 필수값이 잘못되면 502로 처리하며 저장하지 않습니다. 이 단계에서는 외부 호출을 자동 재시도하지 않습니다. 외부 호출은 연결 5초·응답 45초 제한을 사용하며 타임아웃은 504로 구분합니다. 실제 모델 제공 상태·비용·응답 품질과 타임아웃 값은 배포 전에 검증해야 합니다. GPT-6 Luna의 기본 추론 설정에서는 Spring AI의 temperature 및 top_p를 전송하지 않습니다.

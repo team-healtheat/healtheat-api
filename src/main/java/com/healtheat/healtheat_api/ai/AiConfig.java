@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class AiConfig {
-    // Spring AI 1.0 supplies a temperature by default, which GPT-5 mini rejects.
+    // Spring AI 1.0 supplies a temperature by default; GPT-6 Luna with reasoning cannot accept it.
     @Bean
     static BeanPostProcessor omitUnsupportedSamplingParameters() {
         return new BeanPostProcessor() {
