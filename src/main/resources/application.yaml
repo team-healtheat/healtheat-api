@@ -3,6 +3,26 @@ spring:
     exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   application:
     name: healtheat-api
+  http:
+    client:
+      connect-timeout: 5s
+      read-timeout: 45s
+  ai:
+    model:
+      chat: ${AI_CHAT_MODEL:none}
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-6-luna}
+    retry:
+      max-attempts: 1
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/healtheat}
     username: ${DB_USERNAME:healtheat}
