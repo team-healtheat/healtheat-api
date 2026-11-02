@@ -19,9 +19,18 @@ class MealPlanQueryService {
         var meals = recommendations.stream().map(r -> {
             var items = entities.createQuery("select i from MealItem i where i.recommendationId = :id order by i.id", MealItem.class)
                 .setParameter("id", r.id).getResultList().stream()
-                .map(i -> new MealPlanDtos.Item(i.id, i.foodName, i.foodRole, i.preparationType, i.servingDescription)).toList();
+                .map(i -> new MealPlanDtos.Item(i.id, i.foodName, i.foodRole, i.preparationType, i.servingDescription, recipe(i.id))).toList();
             return new MealPlanDtos.Meal(r.id, r.mealType, r.sourceType, r.recommendationReason, r.version, items);
         }).toList();
         return new MealPlanDtos.Plan(plan.id, plan.planDate, meals);
+    }
+    private MealPlanDtos.Recipe recipe(long itemId) {
+        var recipes = entities.createQuery("select r from MealRecipe r where r.mealItemId = :id", MealRecipe.class).setParameter("id", itemId).getResultList();
+        if (recipes.isEmpty()) return null;
+        var r=recipes.get(0);
+        var ingredients=entities.createQuery("select i from MealRecipeIngredient i where i.recipeId = :id order by i.id", MealRecipeIngredient.class)
+            .setParameter("id",r.id).getResultList().stream().map(i -> new MealPlanDtos.Ingredient(i.name,i.quantity,i.unit)).toList();
+        var steps=entities.createQuery("select s.instruction from MealRecipeStep s where s.recipeId = :id order by s.stepNumber",String.class).setParameter("id",r.id).getResultList();
+        return new MealPlanDtos.Recipe(r.id,r.title,r.servings,r.cookingTimeMinutes,ingredients,steps);
     }
 }

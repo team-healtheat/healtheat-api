@@ -16,10 +16,7 @@ public class MealPlanValidator {
 
     public void validate(GeneratedMealPlan.Plan plan, Boolean allowDiningOut, AllergyStatus allergyStatus,
                          List<String> allergens, boolean hasUnverifiedHealthGuidance) {
-        if (allowDiningOut == null) fail("외식 허용 여부를 먼저 확인해야 합니다.");
-        if (allergyStatus != AllergyStatus.NONE || allergens == null || !allergens.isEmpty())
-            fail("알레르기 정보가 없다고 확인되지 않았거나 재료 검증이 아직 지원되지 않습니다.");
-        if (hasUnverifiedHealthGuidance) fail("건강 정보에 적용할 수 있는 검증된 지침이 필요합니다.");
+        validateEligibility(allowDiningOut, allergyStatus, allergens, hasUnverifiedHealthGuidance);
         if (plan == null || plan.meals() == null || plan.meals().size() != 3) fail("세 끼의 식단이 필요합니다.");
         Set<String> seen = new HashSet<>();
         int diningOut = 0;
@@ -37,6 +34,12 @@ public class MealPlanValidator {
             }
         }
         if (diningOut > 1 || (diningOut > 0 && !allowDiningOut)) fail("외식 허용 횟수를 초과했습니다.");
+    }
+    public void validateEligibility(Boolean allowDiningOut, AllergyStatus allergyStatus, List<String> allergens, boolean hasUnverifiedHealthGuidance) {
+        if (allowDiningOut == null) fail("외식 허용 여부를 먼저 확인해야 합니다.");
+        if (allergyStatus != AllergyStatus.NONE || allergens == null || !allergens.isEmpty())
+            fail("알레르기 정보가 없다고 확인되지 않았거나 재료 검증이 아직 지원되지 않습니다.");
+        if (hasUnverifiedHealthGuidance) fail("건강 정보에 적용할 수 있는 검증된 지침이 필요합니다.");
     }
     private void validateRecipe(GeneratedMealPlan.Recipe recipe) {
         if (recipe == null || blank(recipe.title()) || recipe.servings() == null || recipe.servings() < 1
