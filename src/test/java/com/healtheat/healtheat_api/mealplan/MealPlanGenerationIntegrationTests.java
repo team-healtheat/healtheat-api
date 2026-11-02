@@ -25,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest @AutoConfigureMockMvc
 class MealPlanGenerationIntegrationTests {
     @Autowired MockMvc mvc;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate db;
     @Autowired UserRepository users;
     @Autowired PreferenceService preferences;
     @Autowired JwtEncoder encoder;
@@ -74,5 +75,14 @@ class MealPlanGenerationIntegrationTests {
         when(client.generate(any())).thenReturn(new GeneratedMealPlan.Plan(List.of(badMeal,original.meals().get(1),original.meals().get(2))));
         mvc.perform(post("/api/meal-plans/generate").cookie(cookie(id)).with(csrf())).andExpect(status().isBadGateway());
         mvc.perform(get("/api/meal-plans/today").cookie(cookie(id))).andExpect(status().isNoContent());
+    }
+    @Test void passesConfirmedActiveHealthFactorsToModelWithoutRawText() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        Long factor=db.queryForObject("insert into health_factors(code,name,type,supported) values (?,?,?,?) returning id",Long.class,"TEST_"+UUID.randomUUID(),"당뇨병","DIAGNOSIS","UNSUPPORTED");
+        db.update("insert into user_health_factors(user_id,health_factor_id,reported_status,original_text,is_active) values (?,?,?,?,true)",id,factor,"REPORTED","private text");
+        when(client.generate(any())).thenReturn(generated());
+        mvc.perform(post("/api/meal-plans/generate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
+        verify(client).generate(argThat(c -> c.healthFactors().size()==1 && c.healthFactors().get(0).name().equals("당뇨병") && c.healthFactors().get(0).supportStatus().equals("UNSUPPORTED")));
     }
 }

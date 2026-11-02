@@ -30,7 +30,7 @@ class SpringAiMealGenerationClient implements MealGenerationClient {
                 and none if allowDiningOut is false. Use foodRole STAPLE, SOUP, MAIN, SIDE or OTHER,
                 preparationType COOK, PREPARE or READY_TO_EAT. Include ingredients and ordered steps
                 for every home cooked item requiring preparation. Ingredient quantity must be a decimal number as a string or null; unit is separate. Return only the requested structured output.
-                Do not present the result as medically verified or allergen-safe. Do not give medical advice.
+                Consider the confirmed health factors as user-reported information, distinguish concerns from diagnoses, do not infer a diagnosis, invent medical guidelines or claim medical verification. If unsure about a restriction do not assert it is safe. Do not give medical advice or present the result as allergen-safe.
                 """).user(json.writeValueAsString(context)).call().entity(GeneratedMealPlan.Plan.class);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Could not encode generation request", ex);

@@ -19,23 +19,22 @@ class MealPlanValidatorTests {
         return new GeneratedMealPlan.Plan(List.of(meal("BREAKFAST", "HOME_COOKED"), meal("LUNCH", source), meal("DINNER", "HOME_COOKED")));
     }
     @Test void acceptsThreeDistinctMealsAndOneAllowedDiningOut() {
-        assertDoesNotThrow(() -> validator.validate(plan("DINING_OUT"), true, AllergyStatus.NONE, List.of(), false));
+        assertDoesNotThrow(() -> validator.validate(plan("DINING_OUT"), true, AllergyStatus.NONE, List.of()));
     }
     @Test void rejectsUnverifiedAllergyAndHealthInformation() {
         for (var status : List.of(AllergyStatus.UNANSWERED, AllergyStatus.UNKNOWN, AllergyStatus.PRESENT))
-            assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("HOME_COOKED"), false, status, List.of(), false));
-        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("HOME_COOKED"), false, AllergyStatus.NONE, List.of("새우"), false));
-        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("HOME_COOKED"), false, AllergyStatus.NONE, List.of(), true));
+            assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("HOME_COOKED"), false, status, List.of()));
+        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("HOME_COOKED"), false, AllergyStatus.NONE, List.of("새우")));
     }
     @Test void rejectsMissingOrDuplicateMealsAndForbiddenDiningOut() {
-        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("DINING_OUT"), false, AllergyStatus.NONE, List.of(), false));
+        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("DINING_OUT"), false, AllergyStatus.NONE, List.of()));
         var duplicate = new GeneratedMealPlan.Plan(List.of(meal("BREAKFAST", "HOME_COOKED"), meal("BREAKFAST", "HOME_COOKED"), meal("DINNER", "HOME_COOKED")));
-        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(duplicate, true, AllergyStatus.NONE, List.of(), false));
-        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(new GeneratedMealPlan.Plan(null), true, AllergyStatus.NONE, List.of(), false));
+        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(duplicate, true, AllergyStatus.NONE, List.of()));
+        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(new GeneratedMealPlan.Plan(null), true, AllergyStatus.NONE, List.of()));
     }
     @Test void rejectsMissingHomeRecipe() {
         var noRecipe = new GeneratedMealPlan.Item("밥", "STAPLE", "COOK", null, null);
         var malformed = new GeneratedMealPlan.Plan(List.of(new GeneratedMealPlan.Meal("BREAKFAST", "HOME_COOKED", "식사", List.of(noRecipe)), meal("LUNCH", "HOME_COOKED"), meal("DINNER", "HOME_COOKED")));
-        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(malformed, false, AllergyStatus.NONE, List.of(), false));
+        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(malformed, false, AllergyStatus.NONE, List.of()));
     }
 }

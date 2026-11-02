@@ -31,12 +31,13 @@ class MealPlanGenerationService {
         var existing=query.get(userId,date);
         if (existing != null) return existing;
         var preference=preferences.get(userId);
-        boolean healthNeedsGuidance=health.get(userId).factors().stream().anyMatch(f -> f.active());
-        try { validator.validateEligibility(preference.allowDiningOut(),preference.allergyStatus(),preference.allergens(),healthNeedsGuidance); }
+        var activeHealth=health.get(userId).factors().stream().filter(f -> f.active())
+            .map(f -> new MealGenerationContext.HealthFactor(f.name(), f.type(), f.reportedStatus(), f.supported())).toList();
+        try { validator.validateEligibility(preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage()); }
-        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences());
+        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),activeHealth);
         var generated=client.generate(context);
-        try { validator.validate(generated,preference.allowDiningOut(),preference.allergyStatus(),preference.allergens(),healthNeedsGuidance); }
+        try { validator.validate(generated,preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "생성된 식단을 검증하지 못했습니다."); }
         var plan=new MealPlan(); plan.userId=userId; plan.planDate=date; entities.persist(plan);
         for (var meal: generated.meals()) {
