@@ -14,8 +14,7 @@ class MealPlanValidatorTests {
     @Test void allowsDiningOutWithAllergiesWhenEnabled() {
         assertDoesNotThrow(() -> validator.validate(plan("DINING_OUT"),true,AllergyStatus.PRESENT,List.of("사과")));
     }
-    @Test void preservesUnknownAndUnansweredWithoutTreatingThemAsNone() {
-        assertDoesNotThrow(() -> validator.validate(plan("HOME_COOKED"),false,AllergyStatus.UNKNOWN,List.of()));
+    @Test void preservesUnansweredWithoutTreatingItAsNone() {
         assertDoesNotThrow(() -> validator.validate(plan("HOME_COOKED"),false,AllergyStatus.UNANSWERED,List.of()));
         assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("HOME_COOKED"),false,AllergyStatus.NONE,List.of("새우")));
     }

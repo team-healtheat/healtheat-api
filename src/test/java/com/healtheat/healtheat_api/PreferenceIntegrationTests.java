@@ -62,7 +62,7 @@ class PreferenceIntegrationTests {
             .contentType(MediaType.APPLICATION_JSON).content("{\"allowDiningOut\":false,\"likedFoods\":[]}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.allowDiningOut").value(false))
             .andExpect(jsonPath("$.likedFoods.length()").value(0)).andExpect(jsonPath("$.allergens[0]").value("땅콩"));
-        for (String state : List.of("UNKNOWN", "NONE", "UNANSWERED")) {
+        for (String state : List.of("NONE")) {
             mvc.perform(patch("/api/users/me/preferences").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
                 .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("allergyStatus", state, "allergens", List.of()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.allergyStatus").value(state))
@@ -73,7 +73,9 @@ class PreferenceIntegrationTests {
         String valid=json(Map.of("allowDiningOut", true, "allergyStatus", "PRESENT", "allergens", List.of("우유")));
         mvc.perform(patch("/api/users/me/preferences").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
             .contentType(MediaType.APPLICATION_JSON).content(valid)).andExpect(status().isOk());
-        for (String invalid : List.of("{\"allergyStatus\":\"NONE\"}",
+        for (String invalid : List.of("{\"allergyStatus\":\"UNKNOWN\",\"allergens\":[]}",
+                "{\"allergyStatus\":\"UNANSWERED\",\"allergens\":[]}",
+                "{\"allergyStatus\":\"NONE\"}",
                 "{\"allergyStatus\":\"PRESENT\",\"allergens\":[]}",
                 "{\"allergyStatus\":\"NONE\",\"allergens\":[\"우유\"]}",
                 "{\"allergens\":[\"우유\"]}",
