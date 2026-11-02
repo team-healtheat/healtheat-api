@@ -38,3 +38,20 @@ $env:OPENAI_API_KEY = '발급받은 API 키'
 확인한 전체 목록을 `PUT /api/health-profiles`에 `{ "factors": [{ "factorId": null, "name": "혈압 관리", "type": "GOAL", "reportedStatus": "REPORTED", "originalText": "혈압을 관리하고 싶어요", "active": true }] }` 형태로 전송합니다. `factorId`는 분석 결과에서 제공된 경우 유지하고, 없는 새 항목은 null로 보냅니다. `type`과 `reportedStatus`의 구체적 값은 프론트 연동 전에 합의할 임시 문자열 계약입니다. 지원 여부는 요청에서 받지 않습니다. 기존 항목 중 목록에 없는 항목은 삭제하지 않고 비활성화합니다. 빈 목록은 기존 항목을 모두 비활성화합니다. `GET /api/health-profiles`는 로그인한 사용자 자신의 활성·비활성 항목을 반환합니다. 두 변경 요청은 `X-XSRF-TOKEN`과 쿠키가 필요합니다.
 
 AI 응답 형식이나 필수값이 잘못되면 502로 처리하며 저장하지 않습니다. 이 단계에서는 외부 호출을 자동 재시도하지 않습니다. 외부 호출은 연결 5초·응답 45초 제한을 사용하며 타임아웃은 504로 구분합니다. 실제 모델 제공 상태·비용·응답 품질과 타임아웃 값은 배포 전에 검증해야 합니다. GPT-6 Luna의 기본 추론 설정에서는 Spring AI의 temperature 및 top_p를 전송하지 않습니다.
+
+## 선호 및 알레르기 설정
+
+인증 후 `GET /api/users/me/preferences`로 내 설정을 읽고, CSRF 토큰과 쿠키를 포함한 `PATCH /api/users/me/preferences`로 변경할 수 있습니다. 제공한 필드만 바뀌며 `likedFoods`, `dislikedFoods`, `dietaryPreferences`는 문자열 목록을 전체 교체합니다. 빈 목록은 해당 목록을 비웁니다. `allowDiningOut`을 아직 선택하지 않았으면 `null`입니다.
+
+알레르기는 전체 상태와 목록을 함께 저장합니다. 미응답(`UNANSWERED`), 모름(`UNKNOWN`), 없음(`NONE`), 항목 있음(`PRESENT`)은 서로 다릅니다. 새 사용자의 기본값은 `UNANSWERED`이며 알레르기 없음으로 간주하지 않습니다. 알레르기를 변경할 때는 `allergyStatus`와 `allergens`를 함께 보내야 합니다. `PRESENT`는 한 개 이상의 항목이 필요하고 나머지 상태는 빈 목록을 보냅니다. 이 상태 코드와 PATCH 형식은 Notion의 미결 항목을 구현하기 위한 초기 계약이므로 프론트와 확인이 필요합니다.
+
+```json
+{
+  "allowDiningOut": true,
+  "likedFoods": ["두부", "사과"],
+  "allergyStatus": "PRESENT",
+  "allergens": ["땅콩"]
+}
+```
+
+온보딩 화면은 사용자가 입력을 최종 확인한 뒤 저장 요청을 보내야 합니다. 이 API는 알레르기 항목을 저장할 뿐 음식의 안전성을 보장하지 않습니다. 기존 알레르기 항목은 상태 마이그레이션 시 삭제하지 않으며, 새 전체 상태는 미응답으로 시작하므로 사용자의 재확인이 필요합니다.
