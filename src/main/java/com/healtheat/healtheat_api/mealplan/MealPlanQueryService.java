@@ -19,10 +19,10 @@ class MealPlanQueryService {
         var meals = recommendations.stream().map(r -> {
             var items = entities.createQuery("select i from MealItem i where i.recommendationId = :id order by i.id", MealItem.class)
                 .setParameter("id", r.id).getResultList().stream()
-                .map(i -> new MealPlanDtos.Item(i.id, i.foodName, i.foodRole, i.preparationType, i.servingDescription, recipe(i.id))).toList();
+                .map(i -> new MealPlanDtos.Item(i.id, i.foodName, i.foodRole, i.preparationType, i.servingDescription, recipe(i.id), i.explicitIngredients)).toList();
             return new MealPlanDtos.Meal(r.id, r.mealType, r.sourceType, r.recommendationReason, r.version, items);
         }).toList();
-        return new MealPlanDtos.Plan(plan.id, plan.planDate, meals);
+        return new MealPlanDtos.Plan(plan.id, plan.planDate, meals, "AI가 작성한 재료 정보는 불완전할 수 있습니다. 숨은 재료와 교차접촉은 확인할 수 없으므로 섭취 전 직접 확인하세요.");
     }
     private MealPlanDtos.Recipe recipe(long itemId) {
         var recipes = entities.createQuery("select r from MealRecipe r where r.mealItemId = :id", MealRecipe.class).setParameter("id", itemId).getResultList();

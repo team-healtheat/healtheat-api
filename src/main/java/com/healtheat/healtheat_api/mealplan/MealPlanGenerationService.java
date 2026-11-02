@@ -35,7 +35,7 @@ class MealPlanGenerationService {
             .map(f -> new MealGenerationContext.HealthFactor(f.name(), f.type(), f.reportedStatus(), f.supported())).toList();
         try { validator.validateEligibility(preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage()); }
-        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),activeHealth);
+        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),activeHealth,preference.allergens());
         var generated=client.generate(context);
         try { validator.validate(generated,preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "생성된 식단을 검증하지 못했습니다."); }
@@ -45,7 +45,7 @@ class MealPlanGenerationService {
             rec.recommendationReason=meal.recommendationReason(); rec.current=true; rec.version=1; entities.persist(rec);
             for (var generatedItem: meal.items()) {
                 var item=new MealItem(); item.recommendationId=rec.id; item.foodName=generatedItem.foodName(); item.foodRole=generatedItem.foodRole();
-                item.preparationType=generatedItem.preparationType(); item.servingDescription=generatedItem.servingDescription(); entities.persist(item);
+                item.preparationType=generatedItem.preparationType(); item.servingDescription=generatedItem.servingDescription(); item.explicitIngredients=generatedItem.explicitIngredients(); entities.persist(item);
                 if (generatedItem.recipe()!=null) saveRecipe(item.id,generatedItem.recipe());
             }
         }

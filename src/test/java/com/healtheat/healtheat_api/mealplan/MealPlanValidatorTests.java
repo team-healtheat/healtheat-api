@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MealPlanValidatorTests {
-    private final MealPlanValidator validator = new MealPlanValidator();
+    private final MealPlanValidator validator = new MealPlanValidator(new AllergenMatcher());
     private GeneratedMealPlan.Item item() {
         var recipe = new GeneratedMealPlan.Recipe("밥", 1, 20,
             List.of(new GeneratedMealPlan.Ingredient("쌀", "1", "공기")), List.of("밥을 짓는다"));
@@ -36,5 +36,17 @@ class MealPlanValidatorTests {
         var noRecipe = new GeneratedMealPlan.Item("밥", "STAPLE", "COOK", null, null);
         var malformed = new GeneratedMealPlan.Plan(List.of(new GeneratedMealPlan.Meal("BREAKFAST", "HOME_COOKED", "식사", List.of(noRecipe)), meal("LUNCH", "HOME_COOKED"), meal("DINNER", "HOME_COOKED")));
         assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(malformed, false, AllergyStatus.NONE, List.of()));
+    }
+    @Test void refusesMissingIngredientsAndDiningOutForKnownAllergy() {
+        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("HOME_COOKED"), false, AllergyStatus.PRESENT, List.of("새우")));
+        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(plan("DINING_OUT"), true, AllergyStatus.PRESENT, List.of("새우")));
+    }
+    @Test void rejectsAllergenInRecipeStepsEvenWhenExplicitIngredientsOmitIt() {
+        var recipe=new GeneratedMealPlan.Recipe("볶음",1,5,List.of(new GeneratedMealPlan.Ingredient("두부","1","모")),List.of("대하를 함께 볶는다"));
+        var unsafe=new GeneratedMealPlan.Item("볶음","MAIN","COOK",null,recipe,List.of("두부"));
+        var normal=new GeneratedMealPlan.Item("밥","STAPLE","READY_TO_EAT",null,null,List.of("쌀"));
+        var generated=new GeneratedMealPlan.Plan(List.of(new GeneratedMealPlan.Meal("BREAKFAST","HOME_COOKED","식사",List.of(unsafe)),
+            new GeneratedMealPlan.Meal("LUNCH","HOME_COOKED","식사",List.of(normal)),new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","식사",List.of(normal))));
+        assertThrows(MealPlanValidator.InvalidMealPlanException.class, () -> validator.validate(generated,false,AllergyStatus.PRESENT,List.of("새우")));
     }
 }
