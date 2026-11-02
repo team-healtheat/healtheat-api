@@ -85,4 +85,21 @@ class PreferenceIntegrationTests {
             .andExpect(jsonPath("$.allowDiningOut").value(true)).andExpect(jsonPath("$.allergyStatus").value("PRESENT"))
             .andExpect(jsonPath("$.allergens[0]").value("우유"));
     }
+    @Test void basicProfileRequiresAuthenticationAndCsrfAndIsIsolated() throws Exception {
+        mvc.perform(get("/api/users/me/profile")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/users/me/profile").cookie(user).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"age\":27,\"gender\":\"female\"}")).andExpect(status().isForbidden());
+        mvc.perform(put("/api/users/me/profile").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"age\":27,\"gender\":\"female\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.age").value(27)).andExpect(jsonPath("$.gender").value("female"));
+        mvc.perform(get("/api/users/me/profile").cookie(other)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.age").doesNotExist()).andExpect(jsonPath("$.gender").doesNotExist());
+        mvc.perform(put("/api/users/me/profile").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"age\":-1}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/users/me/profile").cookie(user)).andExpect(status().isOk()).andExpect(jsonPath("$.age").value(27));
+        mvc.perform(put("/api/users/me/profile").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"age\":28,\"gender\":null}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.age").value(28)).andExpect(jsonPath("$.gender").doesNotExist());
+    }
 }
