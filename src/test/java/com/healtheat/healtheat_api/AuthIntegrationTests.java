@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.ai.model.chat=none")
 @AutoConfigureMockMvc
 class AuthIntegrationTests {
     @Autowired MockMvc mvc;
@@ -46,6 +46,8 @@ class AuthIntegrationTests {
         assertThat(setCookie).contains("access_token=", "HttpOnly", "Secure", "Max-Age=1800", "SameSite=Lax");
         Cookie token = result.getResponse().getCookie("access_token");
         mvc.perform(get("/api/users/me").cookie(token)).andExpect(status().isOk()).andExpect(jsonPath("$.email").value(email));
+        mvc.perform(post("/api/health-profiles/analyze").cookie(token, c.cookie()).header("X-XSRF-TOKEN", c.token())
+            .contentType(MediaType.APPLICATION_JSON).content("{\"rawText\":\"확인\"}")).andExpect(status().isServiceUnavailable());
         mvc.perform(get("/api/users/me")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/users/me").cookie(new Cookie("access_token", token.getValue()+"broken"))).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/auth/logout").cookie(token)).andExpect(status().isForbidden());
