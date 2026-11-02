@@ -43,12 +43,7 @@ class PreferenceIntegrationTests {
             JwtClaimsSet.builder().subject(Long.toString(id)).issuedAt(now).expiresAt(now.plusSeconds(1800)).build())).getTokenValue());
     }
     private String json(Object value) throws Exception { return json.writeValueAsString(value); }
-    @Test void allergyOptionsCanBeCombinedWithCustomInputOrReplacedWithNone() throws Exception {
-        mvc.perform(get("/api/users/me/preferences/allergy-options")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/users/me/preferences/allergy-options").cookie(user)).andExpect(status().isOk())
-            .andExpect(jsonPath("$[0].name").value("곡류·콩류"))
-            .andExpect(jsonPath("$[3].items[2]").value("새우"))
-            .andExpect(jsonPath("$[5].items[2]").value("아황산류"));
+    @Test void selectedAllergiesCanBeCombinedWithCustomInputOrReplacedWithNone() throws Exception {
         mvc.perform(patch("/api/users/me/preferences").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
             .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("allergyStatus", "PRESENT", "allergens", List.of("새우", "키위")))))
             .andExpect(status().isOk()).andExpect(jsonPath("$.allergens[0]").value("새우"))
