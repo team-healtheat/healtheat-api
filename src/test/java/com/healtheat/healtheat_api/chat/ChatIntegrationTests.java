@@ -66,6 +66,37 @@ class ChatIntegrationTests {
         return health.confirm(user,new HealthDtos.ConfirmRequest(List.of(new HealthDtos.ConfirmedFactor(null,name,"DIAGNOSIS","REPORTED","원문",true))));
     }
     private void classifyAs(ChatModel.Classification value) { when(model.classify(anyString(),anyList(),anyList())).thenReturn(value); }
+    @Test void sessionStartResumeAndEndKeepHealthData() throws Exception {
+        long id=user(),other=user(); String name="건강"+UUID.randomUUID().toString().substring(0,8); seedFactor(id,name);
+        var first=mvc.perform(post("/api/chat/sessions").cookie(cookie(id)).with(csrf())).andExpect(status().isOk())
+            .andExpect(jsonPath("$.expiresAt").exists()).andReturn();
+        var data=json.readTree(first.getResponse().getContentAsString()); long session=data.path("id").asLong();
+        assertEquals(java.time.Duration.ofHours(24),java.time.Duration.between(Instant.parse(data.path("createdAt").asText()),Instant.parse(data.path("expiresAt").asText())));
+        mvc.perform(post("/api/chat/sessions").cookie(cookie(id)).with(csrf())).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(session));
+        classifyAs(classify(ChatModel.Intent.GENERAL_CHAT,null,null,null,null));
+        String content=json.writeValueAsString(new ChatDtos.MessageRequest(session,"안녕"));
+        mvc.perform(post("/api/chat/messages").cookie(cookie(id)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(content)).andExpect(status().isOk());
+        mvc.perform(delete("/api/chat/sessions/"+session).cookie(cookie(other)).with(csrf())).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/chat/sessions/"+session).cookie(cookie(id))).andExpect(status().isForbidden());
+        mvc.perform(delete("/api/chat/sessions/"+session).cookie(cookie(id)).with(csrf())).andExpect(status().isNoContent());
+        assertEquals(0L,db.queryForObject("select count(*) from chat_messages where chat_session_id=?",Long.class,session));
+        assertEquals(1,health.get(id).factors().size());
+        var next=mvc.perform(post("/api/chat/sessions").cookie(cookie(id)).with(csrf())).andExpect(status().isOk()).andReturn();
+        assertNotEquals(session,json.readTree(next.getResponse().getContentAsString()).path("id").asLong());
+    }
+    @Test void expiredSessionsAreHiddenRejectedAndDeleted() throws Exception {
+        long id=user(); var result=mvc.perform(post("/api/chat/sessions").cookie(cookie(id)).with(csrf())).andExpect(status().isOk()).andReturn();
+        long session=json.readTree(result.getResponse().getContentAsString()).path("id").asLong();
+        db.update("insert into chat_messages(chat_session_id,role,content) values (?,'USER','가상 테스트')",session);
+        db.update("update chat_sessions set created_at=now()-interval '25 hours' where id=?",session);
+        mvc.perform(get("/api/chat/sessions").cookie(cookie(id))).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/chat/sessions/"+session+"/messages").cookie(cookie(id))).andExpect(status().isGone());
+        String content=json.writeValueAsString(new ChatDtos.MessageRequest(session,"안녕"));
+        mvc.perform(post("/api/chat/messages").cookie(cookie(id)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(content)).andExpect(status().isGone());
+        chat.deleteExpired();
+        assertEquals(0L,db.queryForObject("select count(*) from chat_sessions where id=?",Long.class,session));
+        assertEquals(0L,db.queryForObject("select count(*) from chat_messages where chat_session_id=?",Long.class,session));
+    }
     @Test void historyCountIsCalculatedFromOwnRecordsAndLimitedTo30Days() throws Exception {
         long id=user(), other=user(); var today=MealRecordPolicy.today();
         meal(id,today.minusDays(1),"김치찌개","김치찌개"); meal(id,today.minusDays(20),"김치찌개");

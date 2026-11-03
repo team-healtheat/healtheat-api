@@ -34,7 +34,10 @@ class ChatService {
     public ChatDtos.Response send(long userId,ChatDtos.MessageRequest request) {
         if (entities.find(User.class,userId)==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Authentication required");
         ChatSession session=request.sessionId()==null ? newSession(userId) : session(userId,request.sessionId());
-        if (request.sessionId()!=null) entities.lock(session,LockModeType.PESSIMISTIC_WRITE);
+        if (request.sessionId()!=null) {
+            entities.lock(session,LockModeType.PESSIMISTIC_WRITE);
+            ensureActive(session);
+        }
         var profile=health.get(userId);
         var factors=profile.factors().stream().map(f -> new ChatModel.Factor(f.factorId(),f.name(),f.type(),f.reportedStatus(),f.active())).toList();
         var recentTurns=conversation(session.id);
@@ -108,10 +111,38 @@ class ChatService {
         session.updatedAt=Instant.now();
         return new ChatDtos.Response(session.id,reply,classification.intent().name(),updatedHealthProfile,updatedMealPlan);
     }
+    @Transactional
+    public ChatDtos.Session start(long userId) {
+        lockUser(userId);
+        var active=entities.createQuery("select s from ChatSession s where s.userId = :userId and s.createdAt > :cutoff order by s.createdAt desc, s.id desc",ChatSession.class)
+            .setParameter("userId",userId).setParameter("cutoff",Instant.now().minus(java.time.Duration.ofHours(24))).setMaxResults(1).getResultList();
+        return sessionDto(active.isEmpty() ? newSession(userId) : active.get(0));
+    }
+    @Transactional
+    public void end(long userId,long sessionId) {
+        var s=session(userId,sessionId);
+        entities.lock(s,LockModeType.PESSIMISTIC_WRITE);
+        ensureActive(s);
+        deleteSession(s);
+    }
+    @Transactional
+    public void deleteExpired() {
+        var expired=entities.createQuery("select s from ChatSession s where s.createdAt <= :cutoff order by s.id",ChatSession.class)
+            .setParameter("cutoff",Instant.now().minus(java.time.Duration.ofHours(24)))
+            .setLockMode(LockModeType.PESSIMISTIC_WRITE).getResultList();
+        for (var s:expired) deleteSession(s);
+    }
+    private void deleteSession(ChatSession s) {
+        entities.createQuery("delete from ChatMessage m where m.sessionId = :id").setParameter("id",s.id).executeUpdate();
+        entities.remove(s);
+    }
+    private ChatDtos.Session sessionDto(ChatSession s) {
+        return new ChatDtos.Session(s.id,s.createdAt,s.updatedAt,s.createdAt.plus(java.time.Duration.ofHours(24)));
+    }
     @Transactional(readOnly=true)
     public List<ChatDtos.Session> sessions(long userId) {
-        return entities.createQuery("select s from ChatSession s where s.userId = :userId order by s.updatedAt desc, s.id desc",ChatSession.class)
-            .setParameter("userId",userId).getResultList().stream().map(s -> new ChatDtos.Session(s.id,s.createdAt,s.updatedAt)).toList();
+        return entities.createQuery("select s from ChatSession s where s.userId = :userId and s.createdAt > :cutoff order by s.updatedAt desc, s.id desc",ChatSession.class)
+            .setParameter("userId",userId).setParameter("cutoff",Instant.now().minus(java.time.Duration.ofHours(24))).getResultList().stream().map(this::sessionDto).toList();
     }
     @Transactional(readOnly=true)
     public List<ChatDtos.Message> messages(long userId,long sessionId) {
@@ -211,11 +242,16 @@ class ChatService {
         };
     }
     private String mealLabel(String type) { return switch(type) { case "BREAKFAST" -> "아침"; case "LUNCH" -> "점심"; case "DINNER" -> "저녁"; default -> type; }; }
-    private ChatSession newSession(long userId) { var s=new ChatSession(userId); entities.persist(s); return s; }
+    private ChatSession newSession(long userId) { var s=new ChatSession(userId); entities.persist(s); entities.flush(); entities.refresh(s); return s; }
     private ChatSession session(long userId,long id) {
         var s=entities.find(ChatSession.class,id);
         if (s==null || !s.userId.equals(userId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Chat session not found");
+        ensureActive(s);
         return s;
+    }
+    private void ensureActive(ChatSession s) {
+        if (!s.createdAt.plus(java.time.Duration.ofHours(24)).isAfter(Instant.now()))
+            throw new ResponseStatusException(HttpStatus.GONE,"대화가 만료되었어요. 새 대화를 시작해 주세요.");
     }
     private void lockUser(long userId) {
         if (entities.find(User.class,userId,LockModeType.PESSIMISTIC_WRITE)==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Authentication required");

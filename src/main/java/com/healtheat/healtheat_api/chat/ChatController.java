@@ -21,6 +21,13 @@ class ChatController {
     ChatDtos.Response send(@AuthenticationPrincipal Jwt jwt,@Valid @RequestBody ChatDtos.MessageRequest request) {
         return chat.send(userId(jwt),request);
     }
+    @PostMapping("/sessions")
+    @Operation(summary="채팅 시작 또는 기존 대화 이어가기",parameters=@Parameter(name="X-XSRF-TOKEN",in=ParameterIn.HEADER,required=true))
+    ChatDtos.Session start(@AuthenticationPrincipal Jwt jwt) { return chat.start(userId(jwt)); }
+    @DeleteMapping("/sessions/{sessionId}")
+    @Operation(summary="채팅 종료 및 대화 삭제",parameters=@Parameter(name="X-XSRF-TOKEN",in=ParameterIn.HEADER,required=true))
+    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    void end(@AuthenticationPrincipal Jwt jwt,@PathVariable long sessionId) { chat.end(userId(jwt),sessionId); }
     @GetMapping("/sessions") @Operation(summary="내 채팅 목록")
     List<ChatDtos.Session> sessions(@AuthenticationPrincipal Jwt jwt) { return chat.sessions(userId(jwt)); }
     @GetMapping("/sessions/{sessionId}/messages") @Operation(summary="내 채팅 메시지 조회")
