@@ -4,6 +4,8 @@ import java.time.LocalDate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 @Service
 class MealPlanQueryService {
     private final EntityManager entities;
@@ -32,5 +34,17 @@ class MealPlanQueryService {
             .setParameter("id",r.id).getResultList().stream().map(i -> new MealPlanDtos.Ingredient(i.name,i.quantity,i.unit)).toList();
         var steps=entities.createQuery("select s.instruction from MealRecipeStep s where s.recipeId = :id order by s.stepNumber",String.class).setParameter("id",r.id).getResultList();
         return new MealPlanDtos.Recipe(r.id,r.title,r.servings,r.cookingTimeMinutes,ingredients,steps);
+    }
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public MealPlanDtos.RecipeDetail recipeForUser(long userId, long recipeId) {
+        var matching = entities.createQuery("""
+            select r from MealRecipe r, MealItem i, MealRecommendation m, MealPlan p
+            where r.id = :recipeId and r.mealItemId = i.id and i.recommendationId = m.id
+              and m.mealPlanId = p.id and p.userId = :userId
+            """, MealRecipe.class).setParameter("recipeId", recipeId).setParameter("userId", userId).getResultList();
+        if (matching.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Recipe not found");
+        var result = recipe(matching.get(0).mealItemId);
+        return new MealPlanDtos.RecipeDetail(result.id(), result.title(), result.servings(), result.cookingTimeMinutes(),
+            result.ingredients(), result.steps(), "AI가 작성한 재료 정보는 불완전할 수 있습니다. 숨은 재료와 교차접촉은 확인할 수 없으므로 섭취 전 직접 확인하세요.");
     }
 }

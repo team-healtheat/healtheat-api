@@ -183,4 +183,23 @@ class MealPlanGenerationIntegrationTests {
         org.junit.jupiter.api.Assertions.assertEquals(Boolean.TRUE,db.queryForObject("select is_current from meal_recommendations where id=?",Boolean.class,oldDinner.id()));
         org.junit.jupiter.api.Assertions.assertEquals(3L,db.queryForObject("select count(*) from meal_recommendations where meal_plan_id=?",Long.class,before.id()));
     }
+    @Test void recipeDetailsAreOwnedAndOldRecommendationsRemainAccessible() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        long other=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        when(client.generate(any())).thenReturn(generated());
+        var before=generation.generate(id,java.time.LocalDate.now());
+        var dinner=before.meals().stream().filter(m -> m.mealType().equals("DINNER")).findFirst().orElseThrow();
+        long recipeId=dinner.items().get(0).recipe().id();
+        mvc.perform(get("/api/recipes/"+recipeId)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/recipes/"+recipeId).cookie(cookie(other))).andExpect(status().isNotFound());
+        mvc.perform(get("/api/recipes/999999999").cookie(cookie(id))).andExpect(status().isNotFound());
+        mvc.perform(get("/api/recipes/"+recipeId).cookie(cookie(id))).andExpect(status().isOk())
+            .andExpect(jsonPath("$.title").value("두부구이")).andExpect(jsonPath("$.servings").value(1))
+            .andExpect(jsonPath("$.cookingTimeMinutes").value(10)).andExpect(jsonPath("$.ingredients[0].name").value("두부"))
+            .andExpect(jsonPath("$.steps[0]").value("두부를 굽는다")).andExpect(jsonPath("$.allergyNotice").isNotEmpty());
+        when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","새 저녁",List.of(new GeneratedMealPlan.Item("사과","OTHER","READY_TO_EAT",null,null))));
+        mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
+        mvc.perform(get("/api/recipes/"+recipeId).cookie(cookie(id))).andExpect(status().isOk()).andExpect(jsonPath("$.title").value("두부구이"));
+    }
 }
