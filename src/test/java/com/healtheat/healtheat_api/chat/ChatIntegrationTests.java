@@ -141,6 +141,26 @@ class ChatIntegrationTests {
         assertEquals(1L,db.queryForObject("select count(*) from meal_recommendations where meal_plan_id=? and meal_type='DINNER' and is_current=false",Long.class,plan));
         verify(mealModel).regenerate(argThat(c -> c.mealType().equals("DINNER") && c.additionalRequest().equals("가벼운 음식")));
     }
+    @Test void unsupportedRequestsReceiveFeatureGuidanceWithoutChangingData() throws Exception {
+        long id=user(); classifyAs(classify(ChatModel.Intent.OUT_OF_SCOPE,null,null,null,null));
+        mvc.perform(post("/api/chat/messages").cookie(cookie(id)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body("여행지 추천해줘")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.reply").value(org.hamcrest.Matchers.containsString("식사 기록 조회")))
+            .andExpect(jsonPath("$.updatedHealthProfile").doesNotExist()).andExpect(jsonPath("$.updatedMealPlan").doesNotExist());
+        verify(model,never()).answer(any()); verifyNoInteractions(healthModel,mealModel);
+        assertTrue(health.get(id).factors().isEmpty());
+    }
+    @Test void greetingsReceiveBriefGuidanceWithoutStartingConsultation() throws Exception {
+        long id=user(); classifyAs(classify(ChatModel.Intent.GENERAL_CHAT,null,null,null,null));
+        mvc.perform(post("/api/chat/messages").cookie(cookie(id)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body("안녕")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.reply").value(org.hamcrest.Matchers.containsString("안녕하세요")));
+        verify(model,never()).answer(any()); verifyNoInteractions(healthModel,mealModel);
+    }
+    @Test void ambiguousMealRegenerationAsksWhichMeal() throws Exception {
+        long id=user(); classifyAs(classify(ChatModel.Intent.REGENERATE_MEAL,null,null,null,null));
+        mvc.perform(post("/api/chat/messages").cookie(cookie(id)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body("오늘 고기가 당겨")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.reply").value(org.hamcrest.Matchers.containsString("아침, 점심, 저녁")));
+        verifyNoInteractions(mealModel);
+    }
     @Test void noHistoryStillAllowsAdvice() throws Exception {
         long id=user(); classifyAs(classify(ChatModel.Intent.FOOD_CONSULTATION,null,null,null,null));
         when(model.answer(any())).thenReturn("기록은 없지만 일반적인 정보를 안내할게요.");

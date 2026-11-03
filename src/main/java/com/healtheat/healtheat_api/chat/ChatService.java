@@ -47,6 +47,8 @@ class ChatService {
         switch (classification.intent()) {
             case GET_MEAL_HISTORY -> reply=historyReply(userId,classification);
             case GET_HEALTH_PROFILE -> reply=profileReply(profile);
+            case OUT_OF_SCOPE -> reply="저는 음식과 식습관 상담, 건강 정보 관리, 식사 기록 조회, 식단 재추천을 도와드릴 수 있어요. 이 중에서 궁금한 점을 말씀해 주세요.";
+            case GENERAL_CHAT -> reply="안녕하세요! 음식과 식습관 상담, 건강 정보 관리, 식사 기록 조회, 식단 재추천을 도와드릴게요.";
             case ADD_HEALTH_FACTOR, UPDATE_HEALTH_FACTOR, REMOVE_HEALTH_FACTOR -> {
                 // Re-read the profile after acquiring the same user lock used by profile updates.
                 long sessionId=session.id;
