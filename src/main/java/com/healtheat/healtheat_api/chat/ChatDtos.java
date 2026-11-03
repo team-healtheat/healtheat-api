@@ -15,9 +15,6 @@ public final class ChatDtos {
     public record Session(Long id, Instant createdAt, Instant updatedAt) {}
     public record Message(Long id, String role, String content, Instant createdAt) {}
     public record Change(Long factorId, String name, String type, String reportedStatus, String originalText, boolean active) {}
-    public record ActionPayload(Long sessionId, String baselineHash, List<Change> changes) {}
-    public record PendingAction(Long id, Long sessionId, String type, String status, List<Change> changes) {}
-    public record Response(Long sessionId, String reply, String intent, PendingAction pendingAction, MealPlanDtos.Plan updatedMealPlan) {}
-    public record ActionResult(Long id, String status, HealthDtos.ProfileResponse profile) {}
+    public record Response(Long sessionId, String reply, String intent, HealthDtos.ProfileResponse updatedHealthProfile, MealPlanDtos.Plan updatedMealPlan) {}
     public record FoodCount(String foodName, LocalDate from, LocalDate to, long count, boolean limitedToRetention) {}
 }

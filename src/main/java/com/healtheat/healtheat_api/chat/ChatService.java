@@ -1,7 +1,5 @@
 package com.healtheat.healtheat_api.chat;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.healtheat.healtheat_api.health.HealthDtos;
 import com.healtheat.healtheat_api.health.HealthProfileService;
 import com.healtheat.healtheat_api.mealplan.ChatMealFacade;
@@ -10,12 +8,8 @@ import com.healtheat.healtheat_api.user.User;
 import com.healtheat.healtheat_api.user.preferences.PreferenceService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -32,10 +26,9 @@ class ChatService {
     private final PreferenceService preferences;
     private final MealHistoryQueryService history;
     private final ChatMealFacade meals;
-    private final ObjectMapper json;
     ChatService(EntityManager entities,ChatModel model,HealthProfileService health,PreferenceService preferences,
-                MealHistoryQueryService history,ChatMealFacade meals,ObjectMapper json) {
-        this.entities=entities; this.model=model; this.health=health; this.preferences=preferences; this.history=history; this.meals=meals; this.json=json;
+                MealHistoryQueryService history,ChatMealFacade meals) {
+        this.entities=entities; this.model=model; this.health=health; this.preferences=preferences; this.history=history; this.meals=meals;
     }
     @Transactional
     public ChatDtos.Response send(long userId,ChatDtos.MessageRequest request) {
@@ -48,20 +41,32 @@ class ChatService {
         var classification=model.classify(request.message(),factors,recentTurns);
         if (classification==null || classification.intent()==null) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"Chat intent response was invalid");
         validateClassification(classification);
-        ChatDtos.PendingAction pending=null;
+        HealthDtos.ProfileResponse updatedHealthProfile=null;
         com.healtheat.healtheat_api.mealplan.MealPlanDtos.Plan updatedMealPlan=null;
         String reply;
         switch (classification.intent()) {
             case GET_MEAL_HISTORY -> reply=historyReply(userId,classification);
             case GET_HEALTH_PROFILE -> reply=profileReply(profile);
             case ADD_HEALTH_FACTOR, UPDATE_HEALTH_FACTOR, REMOVE_HEALTH_FACTOR -> {
-                var changes=propose(userId,request.message(),profile,classification);
+                // Re-read the profile after acquiring the same user lock used by profile updates.
+                long sessionId=session.id;
+                entities.flush();
+                entities.clear();
+                lockUser(userId);
+                session=session(userId,sessionId);
+                var current=health.get(userId);
+                var changes=propose(userId,request.message(),current,classification);
                 if (changes.isEmpty()) reply="변경할 건강 정보를 확인하지 못했어요. 어떤 항목을 어떻게 바꿀지 다시 알려 주세요.";
                 else {
-                    PendingChatAction action=new PendingChatAction(); action.userId=userId; action.actionType=classification.intent().name();
-                    action.payload=new ChatDtos.ActionPayload(session.id,fingerprint(profile),changes); action.status="PENDING"; entities.persist(action);
-                    pending=actionResponse(action);
-                    reply="건강 정보 변경 내용을 확인해 주세요. 확인하기 전에는 저장하지 않아요.";
+                    updatedHealthProfile=applyHealthChanges(userId,current,changes,classification.intent().name());
+                    String names=String.join(", ",changes.stream().map(c -> c.name()+" ("+healthTypeLabel(c.type())+")").toList());
+                    String verb=switch (classification.intent()) {
+                        case ADD_HEALTH_FACTOR -> "건강 정보에 반영했어요: ";
+                        case UPDATE_HEALTH_FACTOR -> "건강 정보를 수정했어요: ";
+                        case REMOVE_HEALTH_FACTOR -> "건강 정보에서 제외했어요: ";
+                        default -> throw new IllegalStateException();
+                    };
+                    reply=verb+names;
                 }
             }
             case REGENERATE_MEAL -> {
@@ -95,10 +100,11 @@ class ChatService {
                 if (requested>30) reply="식사 기록은 최근 30일까지만 확인할 수 있어요. "+reply;
             }
         }
+        session=session(userId,session.id);
         entities.persist(new ChatMessage(session.id,"USER",request.message().trim()));
         entities.persist(new ChatMessage(session.id,"ASSISTANT",reply));
         session.updatedAt=Instant.now();
-        return new ChatDtos.Response(session.id,reply,classification.intent().name(),pending,updatedMealPlan);
+        return new ChatDtos.Response(session.id,reply,classification.intent().name(),updatedHealthProfile,updatedMealPlan);
     }
     @Transactional(readOnly=true)
     public List<ChatDtos.Session> sessions(long userId) {
@@ -111,40 +117,18 @@ class ChatService {
         return entities.createQuery("select m from ChatMessage m where m.sessionId = :id order by m.id",ChatMessage.class)
             .setParameter("id",sessionId).getResultList().stream().map(m -> new ChatDtos.Message(m.id,m.role,m.content,m.createdAt)).toList();
     }
-    @Transactional(readOnly=true)
-    public List<ChatDtos.PendingAction> pending(long userId) {
-        return entities.createQuery("select a from PendingChatAction a where a.userId = :userId and a.status = 'PENDING' and a.actionType in ('ADD_HEALTH_FACTOR','UPDATE_HEALTH_FACTOR','REMOVE_HEALTH_FACTOR') order by a.id",PendingChatAction.class)
-            .setParameter("userId",userId).getResultList().stream().map(this::actionResponse).toList();
-    }
-    @Transactional
-    public ChatDtos.ActionResult confirm(long userId,long actionId) {
-        lockUser(userId);
-        var action=action(userId,actionId);
-        if (!"PENDING".equals(action.status)) throw new ResponseStatusException(HttpStatus.CONFLICT,"이미 처리된 요청입니다.");
-        var current=health.get(userId);
-        if (!fingerprint(current).equals(action.payload.baselineHash())) throw new ResponseStatusException(HttpStatus.CONFLICT,"건강 정보가 변경되어 다시 확인이 필요합니다.");
+    private HealthDtos.ProfileResponse applyHealthChanges(long userId,HealthDtos.ProfileResponse current,List<ChatDtos.Change> changes,String actionType) {
         var merged=new ArrayList<HealthDtos.ConfirmedFactor>();
         for (var f: current.factors()) {
             if (f.factorId()==null || f.name()==null || f.type()==null || f.reportedStatus()==null)
                 throw new ResponseStatusException(HttpStatus.CONFLICT,"기존 건강 정보를 확인한 뒤 다시 시도해 주세요.");
             merged.add(new HealthDtos.ConfirmedFactor(f.factorId(),f.name(),f.type(),f.reportedStatus(),f.originalText(),f.active()));
         }
-        for (var change: action.payload.changes()) applyChange(merged,change,action.actionType);
+        for (var change: changes) applyChange(merged,change,actionType);
         if (merged.size()>50) throw new ResponseStatusException(HttpStatus.CONFLICT,"건강 정보 항목 수가 한도를 초과합니다.");
-        // A bulk update in health.confirm bypasses JPA's first-level cache. Clear loaded profile entities first.
+        entities.flush();
         entities.clear();
-        action=action(userId,actionId);
-        var updated=health.confirm(userId,new HealthDtos.ConfirmRequest(merged));
-        action.status="CONFIRMED"; action.confirmedAt=Instant.now();
-        return new ChatDtos.ActionResult(action.id,action.status,updated);
-    }
-    @Transactional
-    public ChatDtos.ActionResult cancel(long userId,long actionId) {
-        lockUser(userId);
-        var action=action(userId,actionId);
-        if (!"PENDING".equals(action.status)) throw new ResponseStatusException(HttpStatus.CONFLICT,"이미 처리된 요청입니다.");
-        action.status="CANCELLED";
-        return new ChatDtos.ActionResult(action.id,action.status,null);
+        return health.confirm(userId,new HealthDtos.ConfirmRequest(merged));
     }
     private List<ChatDtos.Change> propose(long userId,String text,HealthDtos.ProfileResponse profile,ChatModel.Classification classification) {
         if (classification.intent()==ChatModel.Intent.REMOVE_HEALTH_FACTOR || classification.intent()==ChatModel.Intent.UPDATE_HEALTH_FACTOR) {
@@ -191,10 +175,6 @@ class ChatService {
         }
     }
     private boolean same(String a,String b) { return a!=null && b!=null && a.trim().equalsIgnoreCase(b.trim()); }
-    private String fingerprint(HealthDtos.ProfileResponse profile) {
-        try { return Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(profile.factors()))); }
-        catch (JsonProcessingException | NoSuchAlgorithmException ex) { throw new IllegalStateException("Could not verify health profile",ex); }
-    }
     private void validateClassification(ChatModel.Classification c) {
         if ((c.foodName()!=null && c.foodName().length()>200) || (c.additionalRequest()!=null && c.additionalRequest().length()>1000)
             || (c.mealType()!=null && c.mealType().length()>30) || (c.targetFactorId()!=null && c.targetFactorId()<=0))
@@ -235,15 +215,9 @@ class ChatService {
         if (s==null || !s.userId.equals(userId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Chat session not found");
         return s;
     }
-    private PendingChatAction action(long userId,long id) {
-        var a=entities.find(PendingChatAction.class,id);
-        if (a==null || !a.userId.equals(userId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Action not found");
-        return a;
-    }
     private void lockUser(long userId) {
         if (entities.find(User.class,userId,LockModeType.PESSIMISTIC_WRITE)==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Authentication required");
     }
-    private ChatDtos.PendingAction actionResponse(PendingChatAction a) { return new ChatDtos.PendingAction(a.id,a.payload.sessionId(),a.actionType,a.status,a.payload.changes()); }
     private List<ChatModel.Turn> conversation(long sessionId) {
         var latest=entities.createQuery("select m from ChatMessage m where m.sessionId = :id order by m.id desc",ChatMessage.class)
             .setParameter("id",sessionId).setMaxResults(10).getResultList();

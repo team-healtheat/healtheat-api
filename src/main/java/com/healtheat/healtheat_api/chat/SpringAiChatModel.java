@@ -27,6 +27,9 @@ class SpringAiChatModel implements ChatModel {
                 UPDATE_HEALTH_FACTOR, REMOVE_HEALTH_FACTOR, REGENERATE_MEAL, or GENERAL_CHAT.
                 For a count request return foodName and requested periodDays; if absent use null.
                 For a meal regeneration return mealType BREAKFAST, LUNCH, DINNER and additionalRequest if stated.
+                Only classify ADD/UPDATE/REMOVE health factors for the user's own stated condition, symptom, concern, or goal.
+                Family members' conditions and hypothetical examples must never modify the user profile.
+                Distinguish diagnoses from concerns and symptoms; never turn suspicion into a diagnosis.
                 For health update/removal choose targetFactorId only if the supplied health factor is clearly identified;
                 never invent an ID, a diagnosis, a treatment, or a fact. Otherwise return null. Do not execute actions.
                 """).user(json.writeValueAsString(new ClassificationInput(message,factors,conversation))).call().entity(Classification.class);
