@@ -22,18 +22,27 @@ public class MealPlanValidator {
         int diningOut = 0;
         for (var meal : plan.meals()) {
             if (meal == null || (meal.mealType() == null || !MEALS.contains(meal.mealType())) || !seen.add(meal.mealType())) fail("식사 종류가 올바르지 않습니다.");
-            if ((meal.sourceType() == null || !SOURCES.contains(meal.sourceType()))) fail("식사 출처가 올바르지 않습니다.");
+            validateMeal(meal);
             if ("DINING_OUT".equals(meal.sourceType())) diningOut++;
-            if (blank(meal.recommendationReason()) || meal.items() == null || meal.items().isEmpty() || meal.items().size() > 10)
-                fail("식사 구성이나 추천 이유가 올바르지 않습니다.");
-            for (var item : meal.items()) {
-                if (item == null || blank(item.foodName()) || (item.foodRole() == null || !ROLES.contains(item.foodRole())) || (item.preparationType() == null || !PREPARATIONS.contains(item.preparationType())))
-                    fail("음식 정보가 올바르지 않습니다.");
-                if ("HOME_COOKED".equals(meal.sourceType()) && !"READY_TO_EAT".equals(item.preparationType())) validateRecipe(item.recipe());
-                else if (item.recipe() != null) validateRecipe(item.recipe());
-            }
         }
         if (diningOut > 1 || (diningOut > 0 && !allowDiningOut)) fail("외식 허용 횟수를 초과했습니다.");
+    }
+    public void validateReplacement(GeneratedMealPlan.Meal meal, String requestedType, boolean allowDiningOut, int otherDiningOutMeals) {
+        if (meal == null || !requestedType.equals(meal.mealType())) fail("요청한 끼니와 결과가 일치하지 않습니다.");
+        validateMeal(meal);
+        if ("DINING_OUT".equals(meal.sourceType()) && (!allowDiningOut || otherDiningOutMeals >= 1))
+            fail("외식 허용 횟수를 초과했습니다.");
+    }
+    private void validateMeal(GeneratedMealPlan.Meal meal) {
+        if (meal.sourceType() == null || !SOURCES.contains(meal.sourceType())) fail("식사 출처가 올바르지 않습니다.");
+        if (blank(meal.recommendationReason()) || meal.items() == null || meal.items().isEmpty() || meal.items().size() > 10)
+            fail("식사 구성이나 추천 이유가 올바르지 않습니다.");
+        for (var item : meal.items()) {
+            if (item == null || blank(item.foodName()) || item.foodRole() == null || !ROLES.contains(item.foodRole()) || item.preparationType() == null || !PREPARATIONS.contains(item.preparationType()))
+                fail("음식 정보가 올바르지 않습니다.");
+            if ("HOME_COOKED".equals(meal.sourceType()) && !"READY_TO_EAT".equals(item.preparationType())) validateRecipe(item.recipe());
+            else if (item.recipe() != null) validateRecipe(item.recipe());
+        }
     }
     public void validateEligibility(Boolean allowDiningOut, AllergyStatus allergyStatus, List<String> allergens) {
         if (allowDiningOut == null) fail("외식 허용 여부를 먼저 확인해야 합니다.");

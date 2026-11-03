@@ -40,17 +40,18 @@ class MealPlanGenerationService {
         try { validator.validate(generated,preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "생성된 식단을 검증하지 못했습니다."); }
         var plan=new MealPlan(); plan.userId=userId; plan.planDate=date; entities.persist(plan);
-        for (var meal: generated.meals()) {
-            var rec=new MealRecommendation(); rec.mealPlanId=plan.id; rec.mealType=meal.mealType(); rec.sourceType=meal.sourceType();
-            rec.recommendationReason=meal.recommendationReason(); rec.current=true; rec.version=1; entities.persist(rec);
-            for (var generatedItem: meal.items()) {
-                var item=new MealItem(); item.recommendationId=rec.id; item.foodName=generatedItem.foodName(); item.foodRole=generatedItem.foodRole();
-                item.preparationType=generatedItem.preparationType(); item.servingDescription=generatedItem.servingDescription(); item.explicitIngredients=generatedItem.explicitIngredients(); entities.persist(item);
-                if (generatedItem.recipe()!=null) saveRecipe(item.id,generatedItem.recipe());
-            }
-        }
+        for (var meal: generated.meals()) saveRecommendation(plan.id, meal, 1);
         entities.flush();
         return query.get(userId,date);
+    }
+    void saveRecommendation(long planId, GeneratedMealPlan.Meal meal, int version) {
+        var rec=new MealRecommendation(); rec.mealPlanId=planId; rec.mealType=meal.mealType(); rec.sourceType=meal.sourceType();
+        rec.recommendationReason=meal.recommendationReason(); rec.current=true; rec.version=version; entities.persist(rec);
+        for (var generatedItem: meal.items()) {
+            var item=new MealItem(); item.recommendationId=rec.id; item.foodName=generatedItem.foodName(); item.foodRole=generatedItem.foodRole();
+            item.preparationType=generatedItem.preparationType(); item.servingDescription=generatedItem.servingDescription(); item.explicitIngredients=generatedItem.explicitIngredients(); entities.persist(item);
+            if (generatedItem.recipe()!=null) saveRecipe(item.id,generatedItem.recipe());
+        }
     }
     private void saveRecipe(long itemId, GeneratedMealPlan.Recipe generated) {
         var recipe=new MealRecipe(); recipe.mealItemId=itemId; recipe.title=generated.title(); recipe.servings=generated.servings(); recipe.cookingTimeMinutes=generated.cookingTimeMinutes(); entities.persist(recipe);

@@ -28,6 +28,7 @@ class MealPlanGenerationIntegrationTests {
     @Autowired org.springframework.jdbc.core.JdbcTemplate db;
     @Autowired UserRepository users;
     @Autowired PreferenceService preferences;
+    @Autowired MealPlanGenerationService generation;
     @Autowired JwtEncoder encoder;
     @MockitoBean MealGenerationClient client;
     private Cookie cookie(long id) {
@@ -100,5 +101,86 @@ class MealPlanGenerationIntegrationTests {
         when(client.generate(any())).thenReturn(generated());
         mvc.perform(post("/api/meal-plans/generate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
         verify(client).generate(argThat(c -> c.allergyStatus()==PreferenceDtos.AllergyStatus.UNANSWERED && c.allergens().isEmpty()));
+    }
+    @Test void concurrentGenerationCallsModelOnlyOnceForSameUserAndDate() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        var firstStarted=new java.util.concurrent.CountDownLatch(1);
+        var releaseFirst=new java.util.concurrent.CountDownLatch(1);
+        var secondStarted=new java.util.concurrent.CountDownLatch(1);
+        when(client.generate(any())).thenAnswer(invocation -> {
+            firstStarted.countDown();
+            if (!releaseFirst.await(20,java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException("test timed out");
+            return generated();
+        });
+        var executor=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var date=java.time.LocalDate.now();
+            var first=executor.submit(() -> generation.generate(id,date));
+            org.junit.jupiter.api.Assertions.assertTrue(firstStarted.await(20,java.util.concurrent.TimeUnit.SECONDS));
+            var second=executor.submit(() -> { secondStarted.countDown(); return generation.generate(id,date); });
+            org.junit.jupiter.api.Assertions.assertTrue(secondStarted.await(20,java.util.concurrent.TimeUnit.SECONDS));
+            releaseFirst.countDown();
+            var firstPlan=first.get(30,java.util.concurrent.TimeUnit.SECONDS);
+            var secondPlan=second.get(30,java.util.concurrent.TimeUnit.SECONDS);
+            org.junit.jupiter.api.Assertions.assertEquals(firstPlan.id(),secondPlan.id());
+            verify(client,times(1)).generate(any());
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
+    }
+    @Test void regeneratesOnlyRequestedMealAndKeepsPreviousVersion() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        long other=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of("두부"),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        when(client.generate(any())).thenReturn(generated());
+        var before=generation.generate(id,java.time.LocalDate.now());
+        var replacement=new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","새 저녁",List.of(new GeneratedMealPlan.Item("사과","OTHER","READY_TO_EAT","한 개",null)));
+        when(client.regenerate(any())).thenReturn(replacement);
+        mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/DINNER/regenerate").cookie(cookie(other)).with(csrf()))
+            .andExpect(status().isNotFound());
+        mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/DINNER/regenerate").cookie(cookie(id)))
+            .andExpect(status().isForbidden());
+        var result=mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())
+            .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"additionalRequest\":\"가볍게\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.meals.length()").value(3)).andReturn();
+        var json=new com.fasterxml.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var values=json.get("meals");
+        for (var item: values) {
+            String type=item.get("mealType").asText();
+            var previous=before.meals().stream().filter(m -> m.mealType().equals(type)).findFirst().orElseThrow();
+            if ("DINNER".equals(type)) {
+                org.junit.jupiter.api.Assertions.assertEquals(2,item.get("version").asInt());
+                org.junit.jupiter.api.Assertions.assertEquals("사과",item.get("items").get(0).get("foodName").asText());
+            } else org.junit.jupiter.api.Assertions.assertEquals(previous.id().longValue(),item.get("id").asLong());
+        }
+        var previousDinner=before.meals().stream().filter(m -> m.mealType().equals("DINNER")).findFirst().orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.FALSE,db.queryForObject("select is_current from meal_recommendations where id=?",Boolean.class,previousDinner.id()));
+        verify(client).regenerate(argThat(c -> c.mealType().equals("DINNER") && c.additionalRequest().equals("가볍게") && c.previousFoodNames().contains("두부구이")));
+    }
+    @Test void failedRegenerationPreservesExistingPlan() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        when(client.generate(any())).thenReturn(generated());
+        var before=generation.generate(id,java.time.LocalDate.now());
+        when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("LUNCH","DINING_OUT","외식",List.of(new GeneratedMealPlan.Item("비빔밥","MAIN","READY_TO_EAT",null,null))));
+        mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/LUNCH/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isBadGateway());
+        long count=db.queryForObject("select count(*) from meal_recommendations where meal_plan_id=? and is_current=true",Long.class,before.id());
+        org.junit.jupiter.api.Assertions.assertEquals(3,count);
+        org.junit.jupiter.api.Assertions.assertEquals(3,db.queryForObject("select count(*) from meal_recommendations where meal_plan_id=?",Long.class,before.id()));
+    }
+    @Test void regenerationStorageErrorRollsBackOldRecommendation() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        when(client.generate(any())).thenReturn(generated());
+        var before=generation.generate(id,java.time.LocalDate.now());
+        var badRecipe=new GeneratedMealPlan.Recipe("반찬",1,10,List.of(new GeneratedMealPlan.Ingredient("두부","조금","모")),List.of("굽는다"));
+        var badItem=new GeneratedMealPlan.Item("반찬","SIDE","COOK",null,badRecipe);
+        when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","저녁",List.of(badItem)));
+        mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isBadGateway());
+        var oldDinner=before.meals().stream().filter(m -> m.mealType().equals("DINNER")).findFirst().orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.TRUE,db.queryForObject("select is_current from meal_recommendations where id=?",Boolean.class,oldDinner.id()));
+        org.junit.jupiter.api.Assertions.assertEquals(3L,db.queryForObject("select count(*) from meal_recommendations where meal_plan_id=?",Long.class,before.id()));
     }
 }
