@@ -3,6 +3,7 @@ package com.healtheat.healtheat_api.mealplan;
 import com.healtheat.healtheat_api.health.HealthProfileService;
 import com.healtheat.healtheat_api.user.User;
 import com.healtheat.healtheat_api.user.preferences.PreferenceService;
+import com.healtheat.healtheat_api.mealrecord.MealHistoryQueryService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -20,9 +21,10 @@ class MealPlanGenerationService {
     private final HealthProfileService health;
     private final MealGenerationClient client;
     private final MealPlanValidator validator;
+    private final MealHistoryQueryService mealHistory;
     MealPlanGenerationService(EntityManager entities, MealPlanQueryService query, PreferenceService preferences,
-                              HealthProfileService health, MealGenerationClient client, MealPlanValidator validator) {
-        this.entities=entities; this.query=query; this.preferences=preferences; this.health=health; this.client=client; this.validator=validator;
+                              HealthProfileService health, MealGenerationClient client, MealPlanValidator validator, MealHistoryQueryService mealHistory) {
+        this.entities=entities; this.query=query; this.preferences=preferences; this.health=health; this.client=client; this.validator=validator; this.mealHistory=mealHistory;
     }
     @Transactional
     public MealPlanDtos.Plan generate(long userId, LocalDate date) {
@@ -35,7 +37,7 @@ class MealPlanGenerationService {
             .map(f -> new MealGenerationContext.HealthFactor(f.name(), f.type(), f.reportedStatus(), f.supported())).toList();
         try { validator.validateEligibility(preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage()); }
-        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),activeHealth,preference.allergyStatus(),preference.allergens());
+        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),activeHealth,preference.allergyStatus(),preference.allergens(),mealHistory.recent(userId));
         var generated=client.generate(context);
         try { validator.validate(generated,preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "생성된 식단을 검증하지 못했습니다."); }

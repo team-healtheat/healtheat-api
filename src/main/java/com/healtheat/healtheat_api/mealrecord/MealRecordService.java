@@ -24,6 +24,7 @@ class MealRecordService {
         lockUser(userId);
         if (!MEALS.contains(request.mealType())) throw badRequest("Unknown meal type");
         if (request.sourceType()!=null && !SOURCES.contains(request.sourceType())) throw badRequest("Unknown source type");
+        requireWithinRetention(request.mealDate());
         ensureSlotAvailable(userId,request.mealDate(),request.mealType());
         var record=new MealRecord(); record.userId=userId; record.mealDate=request.mealDate(); record.mealType=request.mealType();
         record.sourceType=request.sourceType(); record.fromRecommendation=false; entities.persist(record);
@@ -39,10 +40,11 @@ class MealRecordService {
             where r.id = :recommendationId and r.mealPlanId = p.id and p.userId = :userId
             """,Object[].class).setParameter("recommendationId",recommendationId).setParameter("userId",userId).getResultList();
         if (recommendation.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Recommendation not found");
+        Object[] source=recommendation.get(0);
+        requireWithinRetention((LocalDate)source[0]);
         var existing=entities.createQuery("select r from MealRecord r where r.userId = :userId and r.recommendationId = :recommendationId",MealRecord.class)
             .setParameter("userId",userId).setParameter("recommendationId",recommendationId).getResultList();
         if (!existing.isEmpty()) return response(existing.get(0));
-        Object[] source=recommendation.get(0);
         ensureSlotAvailable(userId,(LocalDate)source[0],(String)source[1]);
         var names=entities.createQuery("select i.foodName from MealItem i where i.recommendationId = :id order by i.id",String.class)
             .setParameter("id",recommendationId).getResultList();
@@ -56,6 +58,9 @@ class MealRecordService {
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public List<MealRecordDtos.Record> list(long userId, LocalDate from, LocalDate to) {
         if (from!=null && to!=null && from.isAfter(to)) throw badRequest("from must not be after to");
+        LocalDate cutoff=MealRecordPolicy.retentionStart(MealRecordPolicy.today());
+        if (to!=null && to.isBefore(cutoff)) return List.of();
+        if (from==null || from.isBefore(cutoff)) from=cutoff;
         String jpql="select r from MealRecord r where r.userId = :userId";
         if (from!=null) jpql+=" and r.mealDate >= :fromDate";
         if (to!=null) jpql+=" and r.mealDate <= :toDate";
@@ -66,6 +71,10 @@ class MealRecordService {
     }
     private void lockUser(long userId) {
         if (entities.find(User.class,userId,LockModeType.PESSIMISTIC_WRITE)==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Authentication required");
+    }
+    private void requireWithinRetention(LocalDate date) {
+        if (date.isBefore(MealRecordPolicy.retentionStart(MealRecordPolicy.today())))
+            throw badRequest("최근 30일 이내의 식사만 기록할 수 있습니다.");
     }
     private void ensureSlotAvailable(long userId, LocalDate date, String mealType) {
         var existing=entities.createQuery("select r.id from MealRecord r where r.userId = :userId and r.mealDate = :date and r.mealType = :type",Long.class)

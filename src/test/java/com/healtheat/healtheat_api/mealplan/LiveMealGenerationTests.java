@@ -24,7 +24,7 @@ class LiveMealGenerationTests {
     @Test void actualProviderGeneratesAndRegeneratesOneMeal() {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of("두부"),List.of("버섯"),List.of(),PreferenceDtos.AllergyStatus.PRESENT,List.of("새우")));
-        var created=generation.generate(id,LocalDate.now());
+        var created=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
         assertEquals(3,created.meals().size());
         var before=created.meals().stream().filter(m -> "DINNER".equals(m.mealType())).findFirst().orElseThrow();
         var after=regeneration.regenerate(id,created.id(),"DINNER","가벼운 메뉴");
@@ -37,6 +37,6 @@ class LiveMealGenerationTests {
             var current=after.meals().stream().filter(m -> type.equals(m.mealType())).findFirst().orElseThrow();
             assertEquals(old.id(),current.id());
         }
-        assertEquals(after,query.get(id,LocalDate.now()));
+        assertEquals(after,query.get(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today()));
     }
 }

@@ -33,7 +33,7 @@ class MealPlanQueryIntegrationTests {
         long second = users.saveAndFlush(new User(UUID.randomUUID()+"@example.test", "hash")).getId();
         mvc.perform(get("/api/meal-plans/today")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/meal-plans/today").cookie(cookie(first))).andExpect(status().isNoContent());
-        Long plan = db.queryForObject("insert into meal_plans(user_id,plan_date) values (?,?) returning id", Long.class, first, LocalDate.now());
+        Long plan = db.queryForObject("insert into meal_plans(user_id,plan_date) values (?,?) returning id", Long.class, first, com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
         Long current = db.queryForObject("insert into meal_recommendations(meal_plan_id,meal_type,source_type,is_current,version) values (?, 'BREAKFAST', 'HOME', true, 2) returning id", Long.class, plan);
         db.update("insert into meal_recommendations(meal_plan_id,meal_type,is_current,version) values (?, 'BREAKFAST', false, 1)", plan);
         db.update("insert into meal_items(meal_recommendation_id,food_name) values (?,?)", current, "밥");

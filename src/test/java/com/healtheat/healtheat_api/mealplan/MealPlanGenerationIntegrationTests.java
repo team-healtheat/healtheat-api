@@ -115,7 +115,7 @@ class MealPlanGenerationIntegrationTests {
         });
         var executor=java.util.concurrent.Executors.newFixedThreadPool(2);
         try {
-            var date=java.time.LocalDate.now();
+            var date=com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today();
             var first=executor.submit(() -> generation.generate(id,date));
             org.junit.jupiter.api.Assertions.assertTrue(firstStarted.await(20,java.util.concurrent.TimeUnit.SECONDS));
             var second=executor.submit(() -> { secondStarted.countDown(); return generation.generate(id,date); });
@@ -135,7 +135,7 @@ class MealPlanGenerationIntegrationTests {
         long other=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of("두부"),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
         when(client.generate(any())).thenReturn(generated());
-        var before=generation.generate(id,java.time.LocalDate.now());
+        var before=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
         var replacement=new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","새 저녁",List.of(new GeneratedMealPlan.Item("사과","OTHER","READY_TO_EAT","한 개",null)));
         when(client.regenerate(any())).thenReturn(replacement);
         mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/DINNER/regenerate").cookie(cookie(other)).with(csrf()))
@@ -163,7 +163,7 @@ class MealPlanGenerationIntegrationTests {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
         when(client.generate(any())).thenReturn(generated());
-        var before=generation.generate(id,java.time.LocalDate.now());
+        var before=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
         when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("LUNCH","DINING_OUT","외식",List.of(new GeneratedMealPlan.Item("비빔밥","MAIN","READY_TO_EAT",null,null))));
         mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/LUNCH/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isBadGateway());
         long count=db.queryForObject("select count(*) from meal_recommendations where meal_plan_id=? and is_current=true",Long.class,before.id());
@@ -174,7 +174,7 @@ class MealPlanGenerationIntegrationTests {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
         when(client.generate(any())).thenReturn(generated());
-        var before=generation.generate(id,java.time.LocalDate.now());
+        var before=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
         var badRecipe=new GeneratedMealPlan.Recipe("반찬",1,10,List.of(new GeneratedMealPlan.Ingredient("두부","조금","모")),List.of("굽는다"));
         var badItem=new GeneratedMealPlan.Item("반찬","SIDE","COOK",null,badRecipe);
         when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","저녁",List.of(badItem)));
@@ -188,7 +188,7 @@ class MealPlanGenerationIntegrationTests {
         long other=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
         when(client.generate(any())).thenReturn(generated());
-        var before=generation.generate(id,java.time.LocalDate.now());
+        var before=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
         var dinner=before.meals().stream().filter(m -> m.mealType().equals("DINNER")).findFirst().orElseThrow();
         long recipeId=dinner.items().get(0).recipe().id();
         mvc.perform(get("/api/recipes/"+recipeId)).andExpect(status().isUnauthorized());
@@ -201,5 +201,21 @@ class MealPlanGenerationIntegrationTests {
         when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","새 저녁",List.of(new GeneratedMealPlan.Item("사과","OTHER","READY_TO_EAT",null,null))));
         mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
         mvc.perform(get("/api/recipes/"+recipeId).cookie(cookie(id))).andExpect(status().isOk()).andExpect(jsonPath("$.title").value("두부구이"));
+    }
+    @Test void generationAndRegenerationReceiveOnlyRecentActualMeals() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        long other=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        var today=com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today();
+        Long recent=db.queryForObject("insert into meal_records(user_id,meal_date,meal_type,from_recommendation) values (?,?,'LUNCH',false) returning id",Long.class,id,today.minusDays(13));
+        Long old=db.queryForObject("insert into meal_records(user_id,meal_date,meal_type,from_recommendation) values (?,?,'LUNCH',false) returning id",Long.class,id,today.minusDays(14));
+        Long foreign=db.queryForObject("insert into meal_records(user_id,meal_date,meal_type,from_recommendation) values (?,?,'LUNCH',false) returning id",Long.class,other,today);
+        db.update("insert into meal_record_items(meal_record_id,food_name) values (?,'최근 음식'),(?,'오래된 음식'),(?,'다른 사용자 음식')",recent,old,foreign);
+        when(client.generate(any())).thenReturn(generated());
+        var plan=generation.generate(id,today);
+        verify(client).generate(argThat(c -> c.recentMeals().size()==1 && c.recentMeals().get(0).foods().equals(List.of("최근 음식"))));
+        when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","새 저녁",List.of(new GeneratedMealPlan.Item("사과","OTHER","READY_TO_EAT",null,null))));
+        mvc.perform(post("/api/meal-plans/"+plan.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
+        verify(client).regenerate(argThat(c -> c.preferences().recentMeals().size()==1 && c.preferences().recentMeals().get(0).foods().equals(List.of("최근 음식"))));
     }
 }

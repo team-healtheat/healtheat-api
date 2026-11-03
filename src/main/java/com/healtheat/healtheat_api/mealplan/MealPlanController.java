@@ -1,7 +1,7 @@
 package com.healtheat.healtheat_api.mealplan;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
-import java.time.LocalDate;
+import com.healtheat.healtheat_api.mealrecord.MealRecordPolicy;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +20,7 @@ class MealPlanController {
     @PostMapping("/generate")
     @Operation(summary = "오늘 식단 생성", description = "이미 생성된 식단이 있으면 그대로 반환합니다. CSRF 토큰이 필요합니다.")
     MealPlanDtos.Plan generate(@AuthenticationPrincipal Jwt jwt) {
-        return generation.generate(Long.parseLong(jwt.getSubject()), LocalDate.now());
+        return generation.generate(Long.parseLong(jwt.getSubject()), MealRecordPolicy.today());
     }
     @PostMapping("/{planId}/meals/{mealType}/regenerate")
     @Operation(summary = "한 끼 재추천", description = "이전 추천을 보존하고 요청한 끼니만 교체합니다. CSRF 토큰이 필요합니다.")
@@ -29,9 +29,9 @@ class MealPlanController {
         return regeneration.regenerate(Long.parseLong(jwt.getSubject()), planId, mealType, request == null ? null : request.additionalRequest());
     }
     @GetMapping("/today")
-    @Operation(summary = "오늘 식단 조회", description = "서버 날짜 기준으로 저장된 식단만 조회하며 없으면 204를 반환합니다. AI 호출이나 식단 생성은 하지 않습니다.")
+    @Operation(summary = "오늘 식단 조회", description = "한국 날짜 기준으로 저장된 식단만 조회하며 없으면 204를 반환합니다. AI 호출이나 식단 생성은 하지 않습니다.")
     ResponseEntity<MealPlanDtos.Plan> today(@AuthenticationPrincipal Jwt jwt) {
-        var plan = plans.get(Long.parseLong(jwt.getSubject()), LocalDate.now());
+        var plan = plans.get(Long.parseLong(jwt.getSubject()), MealRecordPolicy.today());
         return plan == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(plan);
     }
 }
