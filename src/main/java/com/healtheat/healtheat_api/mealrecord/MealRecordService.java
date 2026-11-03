@@ -24,6 +24,7 @@ class MealRecordService {
         lockUser(userId);
         if (!MEALS.contains(request.mealType())) throw badRequest("Unknown meal type");
         if (request.sourceType()!=null && !SOURCES.contains(request.sourceType())) throw badRequest("Unknown source type");
+        ensureSlotAvailable(userId,request.mealDate(),request.mealType());
         var record=new MealRecord(); record.userId=userId; record.mealDate=request.mealDate(); record.mealType=request.mealType();
         record.sourceType=request.sourceType(); record.fromRecommendation=false; entities.persist(record);
         for (var food: request.items()) saveItem(record.id,food.foodName().trim(),food.servingDescription()==null ? null : food.servingDescription().trim());
@@ -41,10 +42,11 @@ class MealRecordService {
         var existing=entities.createQuery("select r from MealRecord r where r.userId = :userId and r.recommendationId = :recommendationId",MealRecord.class)
             .setParameter("userId",userId).setParameter("recommendationId",recommendationId).getResultList();
         if (!existing.isEmpty()) return response(existing.get(0));
+        Object[] source=recommendation.get(0);
+        ensureSlotAvailable(userId,(LocalDate)source[0],(String)source[1]);
         var names=entities.createQuery("select i.foodName from MealItem i where i.recommendationId = :id order by i.id",String.class)
             .setParameter("id",recommendationId).getResultList();
         if (names.isEmpty() || names.stream().anyMatch(name -> name==null || name.isBlank())) throw badRequest("Recommendation has no usable foods");
-        Object[] source=recommendation.get(0);
         var record=new MealRecord(); record.userId=userId; record.mealDate=(LocalDate)source[0]; record.mealType=(String)source[1];
         record.sourceType=(String)source[2]; record.fromRecommendation=true; record.recommendationId=recommendationId; entities.persist(record);
         for (String name: names) saveItem(record.id,name,null);
@@ -64,6 +66,11 @@ class MealRecordService {
     }
     private void lockUser(long userId) {
         if (entities.find(User.class,userId,LockModeType.PESSIMISTIC_WRITE)==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Authentication required");
+    }
+    private void ensureSlotAvailable(long userId, LocalDate date, String mealType) {
+        var existing=entities.createQuery("select r.id from MealRecord r where r.userId = :userId and r.mealDate = :date and r.mealType = :type",Long.class)
+            .setParameter("userId",userId).setParameter("date",date).setParameter("type",mealType).setMaxResults(1).getResultList();
+        if (!existing.isEmpty()) throw new ResponseStatusException(HttpStatus.CONFLICT,"해당 끼니는 이미 기록되었습니다.");
     }
     private void saveItem(long recordId,String name,String serving) {
         var item=new MealRecordItem(); item.mealRecordId=recordId; item.foodName=name; item.servingDescription=serving; entities.persist(item);

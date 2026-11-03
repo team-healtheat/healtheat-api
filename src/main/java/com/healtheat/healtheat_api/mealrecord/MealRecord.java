@@ -6,8 +6,8 @@ import java.time.LocalDate;
 class MealRecord {
     @Id @GeneratedValue(strategy=GenerationType.IDENTITY) Long id;
     @Column(name="user_id",nullable=false) Long userId;
-    @Column(name="meal_date") LocalDate mealDate;
-    @Column(name="meal_type") String mealType;
+    @Column(name="meal_date",nullable=false) LocalDate mealDate;
+    @Column(name="meal_type",nullable=false) String mealType;
     @Column(name="source_type") String sourceType;
     @Column(name="from_recommendation") Boolean fromRecommendation;
     @Column(name="recommendation_id") Long recommendationId;
