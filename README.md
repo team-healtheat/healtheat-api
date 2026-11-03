@@ -69,3 +69,11 @@ AI 응답 형식이나 필수값이 잘못되면 502로 처리하며 저장하�
 실제 OpenAI 호출을 포함한 선택적 통합 테스트는 `RUN_LIVE_MEAL_TEST=true`, `AI_CHAT_MODEL=openai`와 별도 테스트 DB 및 환경변수 API 키를 설정한 뒤 `LiveMealGenerationTests`를 실행합니다. 실제 API 사용료가 발생하므로 기본 테스트에서는 실행하지 않습니다.
 
 인증 후 `GET /api/recipes/{recipeId}`로 본인의 식단에 저장된 레시피 상세(재료, 조리 순서, 인분, 시간)를 조회할 수 있습니다. 본인의 과거 재추천 버전도 조회할 수 있으며, 다른 사용자의 레시피나 존재하지 않는 ID는 404를 반환합니다. 레시피가 없는 바로 먹는 음식에는 레시피 ID가 없습니다.
+
+## 실제 식사 기록
+
+- `POST /api/meal-records/from-recommendation`: `{ "recommendationId": 123 }`으로 본인의 추천 한 끼를 기록합니다. 같은 추천을 다시 요청하면 기존 기록을 반환하며, 추천의 음식명을 복사하되 섭취량은 임의로 기록하지 않습니다.
+- `POST /api/meal-records`: `{ "mealDate": "2026-11-03", "mealType": "DINNER", "sourceType": "HOME_COOKED", "items": [{ "foodName": "김치찌개", "servingDescription": "반 그릇" }] }`처럼 직접 기록합니다. `sourceType`과 `servingDescription`은 선택이며 직접 기록은 같은 끼니에도 여러 건 가능합니다. 끼니는 `BREAKFAST`, `LUNCH`, `DINNER`, 출처는 `HOME_COOKED`, `DINING_OUT`(배달 포함)을 사용합니다.
+- `GET /api/meal-records?from=2026-11-01&to=2026-11-03`: 인증된 사용자의 해당 기간 기록을 양 끝 날짜를 포함해 조회합니다. 날짜를 생략하면 해당 경계 없이 조회합니다.
+
+쓰기 요청에는 인증 쿠키와 CSRF 토큰이 필요합니다. 미기록은 식사를 하지 않았다는 의미가 아닙니다.

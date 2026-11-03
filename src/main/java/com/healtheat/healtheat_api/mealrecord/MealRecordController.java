@@ -1,0 +1,38 @@
+package com.healtheat.healtheat_api.mealrecord;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import java.time.LocalDate;
+import java.util.List;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.*;
+
+@RestController @RequestMapping("/api/meal-records")
+@Tag(name="식사 기록") @SecurityRequirement(name="accessCookie")
+class MealRecordController {
+    private final MealRecordService records;
+    MealRecordController(MealRecordService records) { this.records=records; }
+    @PostMapping
+    @Operation(summary="직접 식사 기록",parameters=@Parameter(name="X-XSRF-TOKEN",in=ParameterIn.HEADER,required=true))
+    MealRecordDtos.Record create(@AuthenticationPrincipal Jwt jwt,@Valid @RequestBody MealRecordDtos.DirectRequest request) {
+        return records.createDirect(Long.parseLong(jwt.getSubject()),request);
+    }
+    @PostMapping("/from-recommendation")
+    @Operation(summary="추천 식단 간편 기록",description="같은 추천을 반복 요청하면 기존 기록을 반환합니다.",parameters=@Parameter(name="X-XSRF-TOKEN",in=ParameterIn.HEADER,required=true))
+    MealRecordDtos.Record fromRecommendation(@AuthenticationPrincipal Jwt jwt,@Valid @RequestBody MealRecordDtos.RecommendationRequest request) {
+        return records.createFromRecommendation(Long.parseLong(jwt.getSubject()),request.recommendationId());
+    }
+    @GetMapping
+    @Operation(summary="내 식사 기록 조회",description="from과 to는 선택이며 포함 범위로 조회합니다.")
+    List<MealRecordDtos.Record> list(@AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate to) {
+        return records.list(Long.parseLong(jwt.getSubject()),from,to);
+    }
+}
