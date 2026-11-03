@@ -43,6 +43,15 @@ class PreferenceIntegrationTests {
             JwtClaimsSet.builder().subject(Long.toString(id)).issuedAt(now).expiresAt(now.plusSeconds(1800)).build())).getTokenValue());
     }
     private String json(Object value) throws Exception { return json.writeValueAsString(value); }
+    @Test void selectedAllergiesCanBeCombinedWithCustomInputOrReplacedWithNone() throws Exception {
+        mvc.perform(patch("/api/users/me/preferences").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
+            .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("allergyStatus", "PRESENT", "allergens", List.of("새우", "키위")))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.allergens[0]").value("새우"))
+            .andExpect(jsonPath("$.allergens[1]").value("키위"));
+        mvc.perform(patch("/api/users/me/preferences").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
+            .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("allergyStatus", "NONE", "allergens", List.of()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.allergens.length()").value(0));
+    }
     @Test void defaultsUpdatesAndIsolation() throws Exception {
         mvc.perform(get("/api/users/me/preferences")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/users/me/preferences").cookie(user)).andExpect(status().isOk())
@@ -62,7 +71,7 @@ class PreferenceIntegrationTests {
             .contentType(MediaType.APPLICATION_JSON).content("{\"allowDiningOut\":false,\"likedFoods\":[]}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.allowDiningOut").value(false))
             .andExpect(jsonPath("$.likedFoods.length()").value(0)).andExpect(jsonPath("$.allergens[0]").value("땅콩"));
-        for (String state : List.of("UNKNOWN", "NONE", "UNANSWERED")) {
+        for (String state : List.of("NONE")) {
             mvc.perform(patch("/api/users/me/preferences").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
                 .contentType(MediaType.APPLICATION_JSON).content(json(Map.of("allergyStatus", state, "allergens", List.of()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.allergyStatus").value(state))
@@ -73,7 +82,9 @@ class PreferenceIntegrationTests {
         String valid=json(Map.of("allowDiningOut", true, "allergyStatus", "PRESENT", "allergens", List.of("우유")));
         mvc.perform(patch("/api/users/me/preferences").cookie(user, csrfCookie).header("X-XSRF-TOKEN", csrfToken)
             .contentType(MediaType.APPLICATION_JSON).content(valid)).andExpect(status().isOk());
-        for (String invalid : List.of("{\"allergyStatus\":\"NONE\"}",
+        for (String invalid : List.of("{\"allergyStatus\":\"UNKNOWN\",\"allergens\":[]}",
+                "{\"allergyStatus\":\"UNANSWERED\",\"allergens\":[]}",
+                "{\"allergyStatus\":\"NONE\"}",
                 "{\"allergyStatus\":\"PRESENT\",\"allergens\":[]}",
                 "{\"allergyStatus\":\"NONE\",\"allergens\":[\"우유\"]}",
                 "{\"allergens\":[\"우유\"]}",

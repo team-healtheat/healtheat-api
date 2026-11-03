@@ -7,7 +7,7 @@ import java.util.List;
 
 public final class PreferenceDtos {
     private PreferenceDtos() {}
-    public enum AllergyStatus { UNANSWERED, UNKNOWN, NONE, PRESENT }
+    public enum AllergyStatus { UNANSWERED, NONE, PRESENT }
     public record UpdateRequest(Boolean allowDiningOut,
         @Size(max = 50) List<@NotNull @NotBlank @Size(max = 200) String> likedFoods,
         @Size(max = 50) List<@NotNull @NotBlank @Size(max = 200) String> dislikedFoods,

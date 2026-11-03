@@ -36,6 +36,8 @@ public class PreferenceService {
     public PreferenceDtos.Response update(long userId, PreferenceDtos.UpdateRequest request) {
         if ((request.allergyStatus() == null) != (request.allergens() == null))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "allergyStatus and allergens must be provided together");
+        if (request.allergyStatus() == PreferenceDtos.AllergyStatus.UNANSWERED)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose no allergies or provide allergy items");
         List<String> allergens = normalize(request.allergens());
         if (allergens != null && ((request.allergyStatus() == PreferenceDtos.AllergyStatus.PRESENT) != !allergens.isEmpty()))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PRESENT requires allergens; other states require an empty list");
