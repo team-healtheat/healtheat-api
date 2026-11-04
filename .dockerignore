@@ -1,0 +1,9 @@
+*
+!build/
+build/*
+!build/libs/
+build/libs/*
+!build/libs/healtheat-api-0.0.1-SNAPSHOT.jar
+!deploy/
+deploy/*
+!deploy/Dockerfile
