@@ -54,6 +54,19 @@ class MealPlanGenerationIntegrationTests {
             .andExpect(jsonPath("$.meals[0].items[0].recipe.steps[0]").value("두부를 굽는다"));
         verify(client,times(1)).generate(any());
     }
+    @Test void generationReceivesOnlyOwnCurrentDiningOutRecommendationsFromPreviousSixDays() {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        long other=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(true,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        var today=com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today();
+        Long recent=db.queryForObject("insert into meal_plans(user_id,plan_date) values (?,?) returning id",Long.class,id,today.minusDays(1));
+        Long old=db.queryForObject("insert into meal_plans(user_id,plan_date) values (?,?) returning id",Long.class,id,today.minusDays(7));
+        Long foreign=db.queryForObject("insert into meal_plans(user_id,plan_date) values (?,?) returning id",Long.class,other,today.minusDays(1));
+        db.update("insert into meal_recommendations(meal_plan_id,meal_type,source_type,is_current) values (?,'LUNCH','DINING_OUT',true),(?,'LUNCH','DINING_OUT',true),(?,'LUNCH','DINING_OUT',true)",recent,old,foreign);
+        when(client.generate(any())).thenReturn(generated());
+        generation.generate(id,today);
+        verify(client).generate(argThat(c -> c.diningOutRecommendationsLastSixDays()==1));
+    }
     @Test void invalidModelResponseDoesNotSaveAPlan() throws Exception {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));

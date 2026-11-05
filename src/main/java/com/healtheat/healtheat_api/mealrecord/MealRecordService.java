@@ -69,6 +69,19 @@ class MealRecordService {
         if (to!=null) query.setParameter("toDate",to);
         return query.getResultList().stream().map(this::response).toList();
     }
+    @Transactional
+    public MealRecordDtos.Record update(long userId,long recordId,MealRecordDtos.UpdateRequest request) {
+        lockUser(userId);
+        var record=entities.find(MealRecord.class,recordId);
+        if (record==null || !record.userId.equals(userId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Meal record not found");
+        requireWithinRetention(record.mealDate);
+        if (request.sourceType()!=null && !SOURCES.contains(request.sourceType())) throw badRequest("Unknown source type");
+        record.sourceType=request.sourceType(); record.fromRecommendation=false; record.recommendationId=null;
+        entities.createQuery("delete from MealRecordItem i where i.mealRecordId = :id").setParameter("id",record.id).executeUpdate();
+        for (var food:request.items()) saveItem(record.id,food.foodName().trim(),food.servingDescription()==null ? null : food.servingDescription().trim());
+        entities.flush();
+        return response(record);
+    }
     private void lockUser(long userId) {
         if (entities.find(User.class,userId,LockModeType.PESSIMISTIC_WRITE)==null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Authentication required");
     }

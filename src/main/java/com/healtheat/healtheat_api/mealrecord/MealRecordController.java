@@ -28,6 +28,11 @@ class MealRecordController {
     MealRecordDtos.Record fromRecommendation(@AuthenticationPrincipal Jwt jwt,@Valid @RequestBody MealRecordDtos.RecommendationRequest request) {
         return records.createFromRecommendation(Long.parseLong(jwt.getSubject()),request.recommendationId());
     }
+    @PutMapping("/{recordId}")
+    @Operation(summary="내 식사 기록 수정",description="기존 기록의 날짜와 끼니를 유지하고 실제 음식 목록을 교체합니다.",parameters=@Parameter(name="X-XSRF-TOKEN",in=ParameterIn.HEADER,required=true))
+    MealRecordDtos.Record update(@AuthenticationPrincipal Jwt jwt,@PathVariable long recordId,@Valid @RequestBody MealRecordDtos.UpdateRequest request) {
+        return records.update(Long.parseLong(jwt.getSubject()),recordId,request);
+    }
     @GetMapping
     @Operation(summary="내 식사 기록 조회",description="from과 to는 선택이며 포함 범위로 조회합니다. 기록이 있는 날짜와 끼니는 식사 기록이 완료된 상태입니다.")
     List<MealRecordDtos.Record> list(@AuthenticationPrincipal Jwt jwt,

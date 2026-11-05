@@ -10,9 +10,11 @@ public interface ChatModel {
     record Classification(Intent intent, String foodName, Integer periodDays, String mealType, String additionalRequest, Long targetFactorId) {}
     record Factor(Long factorId, String name, String type, String reportedStatus, boolean active) {}
     record Turn(String role, String content) {}
+    record HealthEdit(String action,Long factorId,String name,String type,String reportedStatus,String originalText) {}
     record AdviceContext(String userMessage, List<Factor> healthFactors, PreferenceDtos.AllergyStatus allergyStatus,
                          List<String> allergens, List<MealHistoryQueryService.RecentMeal> recentMeals,
                          int actualDays, boolean limitedToRetention, List<Turn> conversation) {}
     Classification classify(String message, List<Factor> healthFactors, List<Turn> conversation);
     String answer(AdviceContext context);
+    default List<HealthEdit> healthEdits(String message,List<Factor> factors) { return null; }
 }

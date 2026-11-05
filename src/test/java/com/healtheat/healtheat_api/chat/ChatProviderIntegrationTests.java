@@ -53,6 +53,7 @@ class ChatProviderIntegrationTests {
     @Autowired MockMvc mvc;
     @Autowired UserRepository users;
     @Autowired JwtEncoder encoder;
+    @Autowired ChatModel chatModel;
     @Autowired org.springframework.jdbc.core.JdbcTemplate db;
     private Cookie cookie(long id) {
         Instant now=Instant.now(); return new Cookie("access_token",encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),
@@ -74,5 +75,12 @@ class ChatProviderIntegrationTests {
         responses.add("{\"intent\":\"UNKNOWN_ACTION\"}");
         mvc.perform(post("/api/chat/messages").cookie(cookie(id)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"다른 질문\"}"))
             .andExpect(status().isBadGateway());
+    }
+    @Test void healthEditProviderParsesMultipleActions() {
+        responses.add("{\"edits\":[{\"action\":\"REMOVE\",\"factorId\":7,\"name\":\"콜레스테롤\",\"type\":\"CONCERN\",\"reportedStatus\":\"REPORTED\",\"originalText\":null},{\"action\":\"ADD\",\"factorId\":null,\"name\":\"통풍\",\"type\":\"DIAGNOSIS\",\"reportedStatus\":\"REPORTED\",\"originalText\":\"통풍 진단\"}]}");
+        var edits=chatModel.healthEdits("콜레스테롤은 좋아졌고 통풍 진단을 받았어",List.of(new ChatModel.Factor(7L,"콜레스테롤","CONCERN","REPORTED",true)));
+        assertEquals(2,edits.size());
+        assertEquals("REMOVE",edits.get(0).action());
+        assertEquals("통풍",edits.get(1).name());
     }
 }

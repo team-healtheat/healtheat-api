@@ -13,6 +13,7 @@ public class User {
     @Column(nullable = false) private String role;
     private Integer age;
     private String gender;
+    @Column(length = 50) private String nickname;
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false, insertable = false, updatable = false) private Instant updatedAt;
 
@@ -22,6 +23,8 @@ public class User {
     public String getEmail() { return email; }
     public String getPasswordHash() { return passwordHash; }
     public String getRole() { return role; }
+    public String getNickname() { return nickname; }
+    public void setNickname(String nickname) { this.nickname = nickname; }
     public Integer getAge() { return age; }
     public String getGender() { return gender; }
     public void updateBasicProfile(Integer age, String gender) { this.age = age; this.gender = gender; }

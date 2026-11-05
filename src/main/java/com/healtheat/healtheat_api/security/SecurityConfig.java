@@ -1,6 +1,7 @@
 package com.healtheat.healtheat_api.security;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import com.healtheat.healtheat_api.user.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -30,7 +31,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 public class SecurityConfig {
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder decoder, @Value("${app.security.cookie-same-site}") String sameSite) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder decoder, UserRepository users, @Value("${app.security.cookie-same-site}") String sameSite) throws Exception {
         CookieCsrfTokenRepository csrf = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrf.setCookieCustomizer(cookie -> cookie.secure(true).sameSite(sameSite).path("/"));
         return http.cors(cors -> {}).csrf(config -> config.csrfTokenRepository(csrf))
@@ -38,10 +39,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/error").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout").permitAll()
                 .anyRequest().authenticated())
             .exceptionHandling(errors -> errors.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
-            .addFilterBefore(new CookieJwtAuthenticationFilter(decoder), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(new CookieJwtAuthenticationFilter(decoder,users), UsernamePasswordAuthenticationFilter.class)
             .httpBasic(basic -> basic.disable()).formLogin(form -> form.disable()).logout(logout -> logout.disable())
             .build();
     }

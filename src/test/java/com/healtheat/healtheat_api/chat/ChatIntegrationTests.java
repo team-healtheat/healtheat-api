@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -47,6 +48,7 @@ class ChatIntegrationTests {
     @MockitoBean ChatModel model;
     @MockitoBean HealthAnalysisClient healthModel;
     @MockitoBean MealGenerationClient mealModel;
+    @BeforeEach void legacyHealthMock() { when(model.healthEdits(anyString(),anyList())).thenReturn(null); }
     private long user() { return users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId(); }
     private Cookie cookie(long id) {
         Instant now=Instant.now();
@@ -106,6 +108,26 @@ class ChatIntegrationTests {
             .andExpect(status().isOk()).andExpect(jsonPath("$.reply").value(org.hamcrest.Matchers.containsString("2회")))
             .andExpect(jsonPath("$.reply").value(org.hamcrest.Matchers.containsString("30일")));
         verify(model,never()).answer(any());
+    }
+    @Test void oneMessageCanRemoveOneHealthFactorAndAddAnother() throws Exception {
+        long id=user(); var profile=seedFactor(id,"콜레스테롤"); long factorId=profile.factors().get(0).factorId();
+        classifyAs(classify(ChatModel.Intent.UPDATE_HEALTH_FACTOR,null,null,null,factorId));
+        when(model.healthEdits(anyString(),anyList())).thenReturn(List.of(
+            new ChatModel.HealthEdit("REMOVE",factorId,"콜레스테롤","DIAGNOSIS","REPORTED",null),
+            new ChatModel.HealthEdit("ADD",null,"통풍","DIAGNOSIS","REPORTED","통풍이 생겼다")));
+        mvc.perform(post("/api/chat/messages").cookie(cookie(id)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body("콜레스테롤은 괜찮아졌고 통풍 진단을 받았어")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.updatedHealthProfile.factors.length()").value(2));
+        var result=health.get(id).factors();
+        assertTrue(result.stream().anyMatch(f -> f.name().equals("콜레스테롤") && !f.active()));
+        assertTrue(result.stream().anyMatch(f -> f.name().equals("통풍") && f.active()));
+    }
+    @Test void partialFoodQueryIdentifiesTheStoredDishWithoutClaimingUnrecordedMeals() throws Exception {
+        long id=user(), other=user(); var today=MealRecordPolicy.today();
+        meal(id,today,"돼지고기 안심채소덮밥"); meal(other,today,"돼지 안심 스테이크");
+        classifyAs(classify(ChatModel.Intent.GET_MEAL_HISTORY,"돼지 안심",14,null,null));
+        mvc.perform(post("/api/chat/messages").cookie(cookie(id)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body("돼지 안심 몇 번 먹었어?")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.reply").value(org.hamcrest.Matchers.containsString("돼지고기 안심채소덮밥")))
+            .andExpect(jsonPath("$.reply").value(org.hamcrest.Matchers.containsString("1회")));
     }
     @Test void adviceUsesRecent14DaysAndSessionsArePrivate() throws Exception {
         long id=user(),other=user();var today=MealRecordPolicy.today();

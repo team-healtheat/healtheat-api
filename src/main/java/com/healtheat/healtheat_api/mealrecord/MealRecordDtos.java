@@ -16,6 +16,7 @@ public final class MealRecordDtos {
     public record DirectRequest(@NotNull LocalDate mealDate, @NotBlank @Size(max=30) String mealType,
                                 @Size(max=30) String sourceType, @NotEmpty @Size(max=50) List<@NotNull @Valid FoodInput> items) {}
     public record RecommendationRequest(@NotNull @Positive Long recommendationId) {}
+    public record UpdateRequest(@Size(max=30) String sourceType, @NotEmpty @Size(max=50) List<@NotNull @Valid FoodInput> items) {}
     public record Food(Long id, String foodName, String servingDescription) {}
     public record Record(Long id, LocalDate mealDate, String mealType, String sourceType,
                          boolean fromRecommendation, Long recommendationId, Instant createdAt, List<Food> items) {}
