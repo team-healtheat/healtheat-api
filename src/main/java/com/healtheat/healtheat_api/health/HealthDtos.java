@@ -37,10 +37,10 @@ public final class HealthDtos {
     private static String label(String type) {
         if(type==null) return "건강 정보";
         return switch(type.toUpperCase(java.util.Locale.ROOT)) {
-            case "DIAGNOSIS" -> "진단";
-            case "CONCERN" -> "건강 고민";
-            case "GOAL" -> "관리 목표";
-            case "SYMPTOM" -> "증상";
+            case "DIAGNOSIS", "진단" -> "진단";
+            case "CONCERN", "우려", "고민", "건강 고민" -> "건강 고민";
+            case "GOAL", "목표", "관리 목표" -> "관리 목표";
+            case "SYMPTOM", "증상" -> "증상";
             default -> "건강 정보";
         };
     }
