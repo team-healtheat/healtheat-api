@@ -61,6 +61,23 @@ class MealRecordIntegrationTests {
         mvc.perform(get("/api/meal-records").cookie(cookie(other))).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
         assertEquals(1L,db.queryForObject("select count(*) from meal_records where recommendation_id=?",Long.class,rec));
     }
+    @Test void editsRecommendedRecordWithoutCreatingAnotherMealAndEnforcesOwnership() throws Exception {
+        long owner=user(), other=user(); LocalDate date=MealRecordPolicy.today(); long rec=recommendation(owner,date,true);
+        var created=mvc.perform(post("/api/meal-records/from-recommendation").cookie(cookie(owner)).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content("{\"recommendationId\":"+rec+"}"))
+            .andExpect(status().isOk()).andReturn();
+        long id=json.readTree(created.getResponse().getContentAsString()).get("id").asLong();
+        String update="{\"sourceType\":\"DINING_OUT\",\"items\":[{\"foodName\":\"곱도리탕\"},{\"foodName\":\"밥\"}]}";
+        mvc.perform(put("/api/meal-records/{id}",id).cookie(cookie(owner)).contentType(MediaType.APPLICATION_JSON).content(update)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/meal-records/{id}",id).cookie(cookie(other)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(update)).andExpect(status().isNotFound());
+        mvc.perform(put("/api/meal-records/{id}",id).cookie(cookie(owner)).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(update))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(id)).andExpect(jsonPath("$.mealType").value("LUNCH"))
+            .andExpect(jsonPath("$.fromRecommendation").value(false)).andExpect(jsonPath("$.recommendationId").doesNotExist())
+            .andExpect(jsonPath("$.items[0].foodName").value("곱도리탕")).andExpect(jsonPath("$.items.length()").value(2));
+        mvc.perform(post("/api/meal-records/from-recommendation").cookie(cookie(owner)).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"recommendationId\":"+rec+"}")).andExpect(status().isConflict());
+        assertEquals(1L,db.queryForObject("select count(*) from meal_records where user_id=? and meal_date=? and meal_type='LUNCH'",Long.class,owner,date));
+    }
     @Test void directRecordIsUniquePerMealAndDateFiltersAreInclusive() throws Exception {
         long id=user(); Cookie auth=cookie(id); LocalDate today=MealRecordPolicy.today();
         String body="{\"mealDate\":\""+today+"\",\"mealType\":\"DINNER\",\"items\":[{\"foodName\":\" 김치찌개 \",\"servingDescription\":\"반 그릇\"},{\"foodName\":\"밥\"}]}";

@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class MealHistoryQueryService {
     public record RecentMeal(LocalDate mealDate, String mealType, List<String> foods) {}
     public record HistoryCount(String foodName, LocalDate from, LocalDate to, long count, boolean limitedToRetention) {}
+    public record FoodMatch(String foodName,long count) {}
     private final EntityManager entities;
     public MealHistoryQueryService(EntityManager entities) { this.entities = entities; }
     @Transactional(readOnly=true, isolation=Isolation.REPEATABLE_READ)
@@ -54,5 +55,19 @@ public class MealHistoryQueryService {
             """,Long.class).setParameter("userId",userId).setParameter("fromDate",from)
             .setParameter("today",today).setParameter("food",foodName.trim()).getSingleResult();
         return new HistoryCount(foodName.trim(),from,today,count,limited);
+    }
+    @Transactional(readOnly=true)
+    public List<FoodMatch> findFoodMatches(long userId,String query,int requestedDays) {
+        if(query==null || query.isBlank() || query.length()>200 || requestedDays<1) return List.of();
+        var words=java.util.Arrays.stream(query.trim().toLowerCase(java.util.Locale.ROOT).split("\\s+"))
+            .filter(w -> !w.isBlank()).toList();
+        LocalDate today=MealRecordPolicy.today(), from=today.minusDays(Math.min(requestedDays,30)-1);
+        var rows=entities.createQuery("""
+            select i.foodName, count(distinct r.id) from MealRecord r, MealRecordItem i
+            where r.userId=:userId and r.mealDate>=:fromDate and r.mealDate<=:today and i.mealRecordId=r.id
+            group by i.foodName order by i.foodName
+            """,Object[].class).setParameter("userId",userId).setParameter("fromDate",from).setParameter("today",today).getResultList();
+        return rows.stream().filter(row -> row[0]!=null && words.stream().allMatch(w -> ((String)row[0]).toLowerCase(java.util.Locale.ROOT).contains(w)))
+            .map(row -> new FoodMatch((String)row[0],(Long)row[1])).toList();
     }
 }

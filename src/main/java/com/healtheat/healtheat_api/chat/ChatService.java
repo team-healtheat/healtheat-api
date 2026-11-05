@@ -60,6 +60,16 @@ class ChatService {
                 lockUser(userId);
                 session=session(userId,sessionId);
                 var current=health.get(userId);
+                var proposedEdits=model.healthEdits(request.message(),current.factors().stream().map(f -> new ChatModel.Factor(f.factorId(),f.name(),f.type(),f.reportedStatus(),f.active())).toList());
+                if(proposedEdits!=null && !proposedEdits.isEmpty()) {
+                    updatedHealthProfile=applyEdits(userId,current,proposedEdits);
+                    reply="건강 정보에 반영했어요: "+String.join(", ",proposedEdits.stream().map(e -> {
+                        String name=e.factorId()==null ? e.name() : current.factors().stream().filter(f -> e.factorId().equals(f.factorId())).map(HealthDtos.ProfileFactor::name).findFirst().orElse("건강 정보");
+                        return name+("REMOVE".equals(e.action()) ? " 제외" : " 반영");
+                    }).toList());
+                    break;
+                }
+                if(proposedEdits!=null) { reply="변경할 건강 정보를 확인하지 못했어요. 어떤 항목을 어떻게 바꿀지 다시 알려 주세요."; break; }
                 var changes=propose(userId,request.message(),current,classification);
                 if (changes.isEmpty()) reply="변경할 건강 정보를 확인하지 못했어요. 어떤 항목을 어떻게 바꿀지 다시 알려 주세요.";
                 else {
@@ -110,6 +120,30 @@ class ChatService {
         entities.persist(new ChatMessage(session.id,"ASSISTANT",reply));
         session.updatedAt=Instant.now();
         return new ChatDtos.Response(session.id,reply,classification.intent().name(),updatedHealthProfile,updatedMealPlan);
+    }
+    private HealthDtos.ProfileResponse applyEdits(long userId,HealthDtos.ProfileResponse current,List<ChatModel.HealthEdit> edits) {
+        if(edits.size()>50) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"Too many health changes");
+        var merged=new ArrayList<HealthDtos.ConfirmedFactor>();
+        for(var f:current.factors()) merged.add(new HealthDtos.ConfirmedFactor(f.factorId(),f.name(),f.type(),f.reportedStatus(),f.originalText(),f.active()));
+        var touched=new java.util.HashSet<Long>();
+        for(var edit:edits) {
+            if(edit==null || edit.action()==null) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"Invalid health change");
+            if("ADD".equals(edit.action())) {
+                if(edit.factorId()!=null || edit.name()==null || edit.name().isBlank() || edit.type()==null || edit.type().isBlank() || edit.reportedStatus()==null || edit.reportedStatus().isBlank()) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"Invalid health change");
+                if(edit.name().length()>200 || edit.type().length()>80 || edit.reportedStatus().length()>80 || (edit.originalText()!=null && edit.originalText().length()>1000)) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"Invalid health change");
+                applyChange(merged,new ChatDtos.Change(null,edit.name(),edit.type(),edit.reportedStatus(),edit.originalText(),true),"ADD_HEALTH_FACTOR");
+            } else if("REMOVE".equals(edit.action()) || "UPDATE".equals(edit.action())) {
+                if(edit.factorId()==null || !touched.add(edit.factorId())) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"Invalid health change");
+                var existing=current.factors().stream().filter(f -> f.active() && edit.factorId().equals(f.factorId())).toList();
+                if(existing.size()!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"건강 정보 대상을 다시 확인해 주세요.");
+                var f=existing.get(0);
+                String status="UPDATE".equals(edit.action()) ? edit.reportedStatus() : f.reportedStatus();
+                if(status==null || status.isBlank() || status.length()>80) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"Invalid health change");
+                applyChange(merged,new ChatDtos.Change(f.factorId(),f.name(),f.type(),status,f.originalText(),!"REMOVE".equals(edit.action())),"UPDATE_HEALTH_FACTOR");
+            } else throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"Invalid health change");
+        }
+        entities.flush(); entities.clear();
+        return health.confirm(userId,new HealthDtos.ConfirmRequest(merged));
     }
     @Transactional
     public ChatDtos.Session start(long userId) {
@@ -223,6 +257,12 @@ class ChatService {
             return (days>30 ? "식사 기록은 최근 30일까지만 보관해요. " : "")+"저장된 식사 기록이에요: "+text;
         }
         var count=history.countFood(userId,c.foodName(),days);
+        if(count.count()==0) {
+            var matches=history.findFoodMatches(userId,c.foodName(),days);
+            if(matches.size()==1) return "최근 "+Math.min(days,30)+"일 기록에서 '"+matches.get(0).foodName()+"'을(를) 찾았어요. 이 음식으로 기록된 횟수는 "+matches.get(0).count()+"회예요.";
+            if(matches.size()>1) return "비슷한 음식이 여러 개 있어요: "+String.join(", ",matches.stream().limit(10).map(MealHistoryQueryService.FoodMatch::foodName).toList())+". 어떤 음식을 찾으시나요?";
+            return "최근 "+Math.min(days,30)+"일 기록에서 '"+c.foodName()+"'과 일치하는 음식 이름을 찾지 못했어요. 다른 이름으로 기록했을 수 있어요.";
+        }
         return (count.limitedToRetention() ? "식사 기록은 최근 30일까지만 보관해요. " : "")+
             "최근 "+Math.min(days,30)+"일 동안 "+count.foodName()+"을(를) 먹었다고 기록한 횟수는 "+count.count()+"회예요. 기록하지 않은 식사는 포함되지 않아요.";
     }

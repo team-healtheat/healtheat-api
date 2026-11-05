@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.util.List;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 public final class HealthDtos {
     private HealthDtos() {}
@@ -17,7 +18,9 @@ public final class HealthDtos {
                                  @Size(max = 1000) String originalText) {}
     public record HealthFactorAnalysisResponse(@NotNull @Size(max = 50) List<@NotNull @Valid AnalysisFactor> factors) {}
     public record Candidate(Long factorId, String name, String type, String reportedStatus,
-                            String originalText, String supported) {}
+                            String originalText, String supported) {
+        @JsonProperty public String typeLabel() { return label(type); }
+    }
     public record AnalysisResponse(List<Candidate> factors) {}
     public record ConfirmedFactor(@Positive Long factorId,
                                   @NotBlank @Size(max = 200) String name,
@@ -27,6 +30,18 @@ public final class HealthDtos {
                                   @NotNull Boolean active) {}
     public record ConfirmRequest(@NotNull @Size(max = 50) List<@NotNull @Valid ConfirmedFactor> factors) {}
     public record ProfileFactor(Long id, Long factorId, String name, String type, String reportedStatus,
-                                String originalText, boolean active, String supported) {}
+                                String originalText, boolean active, String supported) {
+        @JsonProperty public String typeLabel() { return label(type); }
+    }
     public record ProfileResponse(List<ProfileFactor> factors) {}
+    private static String label(String type) {
+        if(type==null) return "건강 정보";
+        return switch(type.toUpperCase(java.util.Locale.ROOT)) {
+            case "DIAGNOSIS" -> "진단";
+            case "CONCERN" -> "건강 고민";
+            case "GOAL" -> "관리 목표";
+            case "SYMPTOM" -> "증상";
+            default -> "건강 정보";
+        };
+    }
 }

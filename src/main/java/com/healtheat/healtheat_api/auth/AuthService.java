@@ -22,7 +22,9 @@ public class AuthService {
         if (request.password().getBytes(StandardCharsets.UTF_8).length > 72) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password exceeds 72 UTF-8 bytes");
         String email = request.email().trim();
         if (users.existsByEmail(email)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already registered");
-        try { return users.saveAndFlush(new User(email, passwords.encode(request.password()))); }
+        var user = new User(email, passwords.encode(request.password()));
+        if (request.nickname()!=null && !request.nickname().isBlank()) user.setNickname(request.nickname().trim());
+        try { return users.saveAndFlush(user); }
         catch (DataIntegrityViolationException ex) { throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already registered"); }
     }
     @Transactional(readOnly = true)
@@ -34,4 +36,10 @@ public class AuthService {
     }
     @Transactional(readOnly = true)
     public User getUser(long id) { return users.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required")); }
+    @Transactional
+    public User updateNickname(long id,String nickname) {
+        var user=users.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Authentication required"));
+        user.setNickname(nickname.trim());
+        return user;
+    }
 }
