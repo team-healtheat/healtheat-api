@@ -29,6 +29,7 @@ class MealPlanGenerationIntegrationTests {
     @Autowired UserRepository users;
     @Autowired PreferenceService preferences;
     @Autowired MealPlanGenerationService generation;
+    @Autowired MealRegenerationService regeneration;
     @Autowired JwtEncoder encoder;
     @MockitoBean MealGenerationClient client;
     private Cookie cookie(long id) {
@@ -206,6 +207,31 @@ class MealPlanGenerationIntegrationTests {
         long count=db.queryForObject("select count(*) from meal_recommendations where meal_plan_id=? and is_current=true",Long.class,before.id());
         org.junit.jupiter.api.Assertions.assertEquals(3,count);
         org.junit.jupiter.api.Assertions.assertEquals(3,db.queryForObject("select count(*) from meal_recommendations where meal_plan_id=?",Long.class,before.id()));
+    }
+    @Test void ordinaryRetryAfterDiningOutOffersHomeCookedWithoutChangingPreference() {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(true,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        var base=generated();
+        var dining=new GeneratedMealPlan.Meal("DINNER","DINING_OUT","외식",List.of(new GeneratedMealPlan.Item("비빔밥","MAIN","READY_TO_EAT",null,null)));
+        when(client.generate(any())).thenReturn(new GeneratedMealPlan.Plan(List.of(base.meals().get(0),base.meals().get(1),dining)));
+        var plan=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
+        var home=new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","집밥",List.of(new GeneratedMealPlan.Item("사과","OTHER","READY_TO_EAT",null,null)));
+        when(client.regenerate(any())).thenReturn(dining,home);
+        var result=regeneration.regenerate(id,plan.id(),"DINNER",null);
+        verify(client,times(2)).regenerate(argThat(c -> !c.preferences().allowDiningOut()));
+        org.junit.jupiter.api.Assertions.assertEquals("HOME_COOKED",result.meals().stream().filter(m -> m.mealType().equals("DINNER")).findFirst().orElseThrow().sourceType());
+        org.junit.jupiter.api.Assertions.assertTrue(preferences.get(id).allowDiningOut());
+    }
+    @Test void explicitRequestAfterDiningOutKeepsDiningOutAvailable() {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(true,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        var base=generated();
+        var dining=new GeneratedMealPlan.Meal("DINNER","DINING_OUT","외식",List.of(new GeneratedMealPlan.Item("비빔밥","MAIN","READY_TO_EAT",null,null)));
+        when(client.generate(any())).thenReturn(new GeneratedMealPlan.Plan(List.of(base.meals().get(0),base.meals().get(1),dining)));
+        var plan=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
+        when(client.regenerate(any())).thenReturn(dining);
+        regeneration.regenerate(id,plan.id(),"DINNER","배달 음식으로 추천해줘");
+        verify(client).regenerate(argThat(c -> c.preferences().allowDiningOut()));
     }
     @Test void regenerationStorageErrorRollsBackOldRecommendation() throws Exception {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
