@@ -32,4 +32,15 @@ public class HealthProfileController {
     public HealthDtos.ProfileResponse get(@AuthenticationPrincipal Jwt jwt) {
         return profiles.get(Long.parseLong(jwt.getSubject()));
     }
+    @GetMapping("/options")
+    @Operation(summary = "선택 가능한 건강요인 목록")
+    public java.util.List<String> options() { return profiles.options(); }
+    @GetMapping("/selection")
+    @Operation(summary = "건강요인 선택 상태 조회")
+    public HealthDtos.SelectionState selection(@AuthenticationPrincipal Jwt jwt) { return profiles.selection(Long.parseLong(jwt.getSubject())); }
+    @PutMapping("/selection")
+    @Operation(summary = "선택한 질환 저장", description = "AI 분석 없이 선택한 질환과 직접 입력을 저장합니다. 없음은 다른 항목과 함께 선택할 수 없습니다.", parameters = @Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true))
+    public HealthDtos.ProfileResponse select(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody HealthDtos.SelectionRequest request) {
+        return profiles.select(Long.parseLong(jwt.getSubject()), request);
+    }
 }

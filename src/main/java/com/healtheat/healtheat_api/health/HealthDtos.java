@@ -29,6 +29,10 @@ public final class HealthDtos {
                                   @Size(max = 1000) String originalText,
                                   @NotNull Boolean active) {}
     public record ConfirmRequest(@NotNull @Size(max = 50) List<@NotNull @Valid ConfirmedFactor> factors) {}
+    public record SelectionRequest(@NotNull @Size(max = 12) List<@NotBlank @Size(max = 200) String> conditions,
+                                   @NotNull @Size(max = 38) List<@NotBlank @Size(max = 200) String> other,
+                                   @NotNull Boolean none) {}
+    public record SelectionState(boolean completed, boolean none, List<ProfileFactor> factors) {}
     public record ProfileFactor(Long id, Long factorId, String name, String type, String reportedStatus,
                                 String originalText, boolean active, String supported) {
         @JsonProperty public String typeLabel() { return label(type); }
