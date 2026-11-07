@@ -74,6 +74,30 @@ class MealPlanGenerationIntegrationTests {
         mvc.perform(post("/api/meal-plans/generate").cookie(cookie(id)).with(csrf())).andExpect(status().isBadGateway());
         mvc.perform(get("/api/meal-plans/today").cookie(cookie(id))).andExpect(status().isNoContent());
     }
+    @Test void retriesInvalidReplacementOnceAndKeepsOtherMeals() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        when(client.generate(any())).thenReturn(generated());
+        var plan=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
+        var invalid=new GeneratedMealPlan.Meal("LUNCH","HOME_COOKED","잘못된 끼니",List.of());
+        var valid=new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","새 저녁",List.of(new GeneratedMealPlan.Item("사과","OTHER","READY_TO_EAT",null,null)));
+        when(client.regenerate(any())).thenReturn(invalid,valid);
+        mvc.perform(post("/api/meal-plans/"+plan.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
+        verify(client,times(2)).regenerate(any());
+        mvc.perform(get("/api/meal-plans/today").cookie(cookie(id))).andExpect(status().isOk())
+            .andExpect(jsonPath("$.meals.length()").value(3));
+    }
+    @Test void repeatedInvalidReplacementLeavesOriginalMealUntouched() throws Exception {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        when(client.generate(any())).thenReturn(generated());
+        var plan=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
+        when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("LUNCH","HOME_COOKED","잘못된 끼니",List.of()));
+        mvc.perform(post("/api/meal-plans/"+plan.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isBadGateway());
+        verify(client,times(2)).regenerate(any());
+        mvc.perform(get("/api/meal-plans/today").cookie(cookie(id))).andExpect(status().isOk())
+            .andExpect(jsonPath("$.meals[2].items[0].foodName").value("두부구이"));
+    }
     @Test void invalidIngredientAmountRollsBackAlreadyInsertedRows() throws Exception {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
