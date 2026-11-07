@@ -21,6 +21,17 @@ class LiveMealGenerationTests {
     @Autowired MealPlanGenerationService generation;
     @Autowired MealRegenerationService regeneration;
     @Autowired MealPlanQueryService query;
+    @Test void varietyWithPorkPreferenceAndRepeatedRegeneration() {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of("돼지고기"),List.of("버섯"),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        var plan=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
+        System.out.println("VARIETY_INITIAL="+plan.meals().stream().map(m -> m.mealType()+":"+m.items().stream().map(i -> i.foodName()).toList()).toList());
+        for(int attempt=1;attempt<=3;attempt++) {
+            plan=regeneration.regenerate(id,plan.id(),"DINNER",null);
+            var dinner=plan.meals().stream().filter(m -> "DINNER".equals(m.mealType())).findFirst().orElseThrow();
+            System.out.println("VARIETY_RETRY_"+attempt+"="+dinner.items().stream().map(i -> i.foodName()).toList());
+        }
+    }
     @Test void actualProviderGeneratesAndRegeneratesOneMeal() {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of("두부"),List.of("버섯"),List.of(),PreferenceDtos.AllergyStatus.PRESENT,List.of("새우")));

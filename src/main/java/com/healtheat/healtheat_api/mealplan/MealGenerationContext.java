@@ -8,10 +8,15 @@ import com.healtheat.healtheat_api.mealrecord.MealHistoryQueryService.RecentMeal
 public record MealGenerationContext(Boolean allowDiningOut, List<String> likedFoods,
                                     List<String> dislikedFoods, List<String> dietaryPreferences,
                                     List<HealthFactor> healthFactors, AllergyStatus allergyStatus, List<String> allergens,
-                                    List<RecentMeal> recentMeals, long diningOutRecommendationsLastSixDays) {
+                                    List<RecentMeal> recentMeals, long diningOutRecommendationsLastSixDays,
+                                    List<String> recentRecommendedFoods) {
     public MealGenerationContext(Boolean allowDiningOut,List<String> likedFoods,List<String> dislikedFoods,List<String> dietaryPreferences,
         List<HealthFactor> healthFactors,AllergyStatus allergyStatus,List<String> allergens,List<RecentMeal> recentMeals) {
-        this(allowDiningOut,likedFoods,dislikedFoods,dietaryPreferences,healthFactors,allergyStatus,allergens,recentMeals,0);
+        this(allowDiningOut,likedFoods,dislikedFoods,dietaryPreferences,healthFactors,allergyStatus,allergens,recentMeals,0,List.of());
+    }
+    public MealGenerationContext(Boolean allowDiningOut,List<String> likedFoods,List<String> dislikedFoods,List<String> dietaryPreferences,
+        List<HealthFactor> healthFactors,AllergyStatus allergyStatus,List<String> allergens,List<RecentMeal> recentMeals,long diningOutRecommendationsLastSixDays) {
+        this(allowDiningOut,likedFoods,dislikedFoods,dietaryPreferences,healthFactors,allergyStatus,allergens,recentMeals,diningOutRecommendationsLastSixDays,List.of());
     }
     public record HealthFactor(String name, String type, String reportedStatus, String supportStatus) {}
 }

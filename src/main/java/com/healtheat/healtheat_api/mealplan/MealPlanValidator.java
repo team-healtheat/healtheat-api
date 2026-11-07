@@ -58,7 +58,13 @@ public class MealPlanValidator {
             || recipe.ingredients() == null || recipe.ingredients().isEmpty() || recipe.ingredients().size() > 50
             || recipe.steps() == null || recipe.steps().isEmpty() || recipe.steps().size() > 50)
             fail("레시피가 불완전합니다.");
-        for (var ingredient : recipe.ingredients()) if (ingredient == null || blank(ingredient.name())) fail("재료 이름이 필요합니다.");
+        for (var ingredient : recipe.ingredients()) {
+            if (ingredient == null || blank(ingredient.name())) fail("재료 이름이 필요합니다.");
+            if (ingredient.quantity()!=null && !ingredient.quantity().isBlank()) {
+                try { if (new java.math.BigDecimal(ingredient.quantity()).signum()<0) fail("재료 분량이 올바르지 않습니다."); }
+                catch (NumberFormatException ex) { fail("재료 분량이 올바르지 않습니다."); }
+            }
+        }
         for (String step : recipe.steps()) if (blank(step)) fail("조리 단계가 비어 있습니다.");
     }
     private boolean blank(String value) { return value == null || value.isBlank() || value.length() > 1000; }
