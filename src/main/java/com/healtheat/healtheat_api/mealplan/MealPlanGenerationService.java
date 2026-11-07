@@ -37,7 +37,7 @@ class MealPlanGenerationService {
             .map(f -> new MealGenerationContext.HealthFactor(f.name(), f.type(), f.reportedStatus(), f.supported())).toList();
         try { validator.validateEligibility(preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage()); }
-        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),activeHealth,preference.allergyStatus(),preference.allergens(),mealHistory.recent(userId),recentDiningOut(userId,date));
+        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),activeHealth,preference.allergyStatus(),preference.allergens(),mealHistory.recent(userId),recentDiningOut(userId,date),recentRecommendedFoods(userId,date));
         var generated=client.generate(context);
         try { validator.validate(generated,preference.allowDiningOut(),preference.allergyStatus(),preference.allergens()); }
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "생성된 식단을 검증하지 못했습니다."); }
@@ -45,6 +45,15 @@ class MealPlanGenerationService {
         for (var meal: generated.meals()) saveRecommendation(plan.id, meal, 1);
         entities.flush();
         return query.get(userId,date);
+    }
+    java.util.List<String> recentRecommendedFoods(long userId, LocalDate date) {
+        return entities.createQuery("""
+            select distinct i.foodName from MealItem i, MealRecommendation r, MealPlan p
+            where i.recommendationId=r.id and r.mealPlanId=p.id and p.userId=:userId
+              and p.planDate>=:fromDate and p.planDate<=:date and i.foodName is not null
+            order by i.foodName
+            """,String.class).setParameter("userId",userId).setParameter("fromDate",date.minusDays(13))
+            .setParameter("date",date).setMaxResults(150).getResultList();
     }
     long recentDiningOut(long userId,LocalDate date) {
         return entities.createQuery("select count(r.id) from MealRecommendation r, MealPlan p where r.mealPlanId=p.id and p.userId=:userId and p.planDate>=:from and p.planDate<:date and r.current=true and r.sourceType='DINING_OUT'",Long.class)

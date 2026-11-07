@@ -215,7 +215,7 @@ class MealPlanGenerationIntegrationTests {
         mvc.perform(post("/api/meal-plans/"+before.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
         mvc.perform(get("/api/recipes/"+recipeId).cookie(cookie(id))).andExpect(status().isOk()).andExpect(jsonPath("$.title").value("두부구이"));
     }
-    @Test void generationAndRegenerationReceiveOnlyRecentActualMeals() throws Exception {
+    @Test void generationAndRegenerationKeepActualMealsSeparateFromRecentRecommendations() throws Exception {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         long other=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of(),List.of(),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
@@ -224,11 +224,18 @@ class MealPlanGenerationIntegrationTests {
         Long old=db.queryForObject("insert into meal_records(user_id,meal_date,meal_type,from_recommendation) values (?,?,'LUNCH',false) returning id",Long.class,id,today.minusDays(14));
         Long foreign=db.queryForObject("insert into meal_records(user_id,meal_date,meal_type,from_recommendation) values (?,?,'LUNCH',false) returning id",Long.class,other,today);
         db.update("insert into meal_record_items(meal_record_id,food_name) values (?,'최근 음식'),(?,'오래된 음식'),(?,'다른 사용자 음식')",recent,old,foreign);
+        Long recentPlan=db.queryForObject("insert into meal_plans(user_id,plan_date) values (?,?) returning id",Long.class,id,today.minusDays(13));
+        Long oldPlan=db.queryForObject("insert into meal_plans(user_id,plan_date) values (?,?) returning id",Long.class,id,today.minusDays(14));
+        Long foreignPlan=db.queryForObject("insert into meal_plans(user_id,plan_date) values (?,?) returning id",Long.class,other,today);
+        Long recentRec=db.queryForObject("insert into meal_recommendations(meal_plan_id,meal_type) values (?,'LUNCH') returning id",Long.class,recentPlan);
+        Long oldRec=db.queryForObject("insert into meal_recommendations(meal_plan_id,meal_type) values (?,'LUNCH') returning id",Long.class,oldPlan);
+        Long foreignRec=db.queryForObject("insert into meal_recommendations(meal_plan_id,meal_type) values (?,'LUNCH') returning id",Long.class,foreignPlan);
+        db.update("insert into meal_items(meal_recommendation_id,food_name) values (?,'이전 추천'),(?,'기간 밖 추천'),(?,'다른 사용자 추천')",recentRec,oldRec,foreignRec);
         when(client.generate(any())).thenReturn(generated());
         var plan=generation.generate(id,today);
-        verify(client).generate(argThat(c -> c.recentMeals().size()==1 && c.recentMeals().get(0).foods().equals(List.of("최근 음식"))));
+        verify(client).generate(argThat(c -> c.recentMeals().size()==1 && c.recentMeals().get(0).foods().equals(List.of("최근 음식")) && c.recentRecommendedFoods().equals(List.of("이전 추천"))));
         when(client.regenerate(any())).thenReturn(new GeneratedMealPlan.Meal("DINNER","HOME_COOKED","새 저녁",List.of(new GeneratedMealPlan.Item("사과","OTHER","READY_TO_EAT",null,null))));
         mvc.perform(post("/api/meal-plans/"+plan.id()+"/meals/DINNER/regenerate").cookie(cookie(id)).with(csrf())).andExpect(status().isOk());
-        verify(client).regenerate(argThat(c -> c.preferences().recentMeals().size()==1 && c.preferences().recentMeals().get(0).foods().equals(List.of("최근 음식"))));
+        verify(client).regenerate(argThat(c -> c.preferences().recentMeals().size()==1 && c.preferences().recentMeals().get(0).foods().equals(List.of("최근 음식")) && c.preferences().recentRecommendedFoods().contains("이전 추천") && !c.preferences().recentRecommendedFoods().contains("다른 사용자 추천")));
     }
 }
