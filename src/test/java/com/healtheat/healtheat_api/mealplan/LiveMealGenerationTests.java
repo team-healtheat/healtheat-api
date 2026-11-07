@@ -21,6 +21,19 @@ class LiveMealGenerationTests {
     @Autowired MealPlanGenerationService generation;
     @Autowired MealRegenerationService regeneration;
     @Autowired MealPlanQueryService query;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate db;
+    @Test void diningOutRetryProducesHomeCooked() {
+        long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
+        preferences.update(id,new PreferenceDtos.UpdateRequest(true,List.of("돼지고기"),List.of("버섯"),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));
+        var plan=generation.generate(id,com.healtheat.healtheat_api.mealrecord.MealRecordPolicy.today());
+        db.update("update meal_recommendations set source_type='HOME_COOKED' where meal_plan_id=?",plan.id());
+        db.update("update meal_recommendations set source_type='DINING_OUT' where meal_plan_id=? and meal_type='DINNER'",plan.id());
+        var changed=regeneration.regenerate(id,plan.id(),"DINNER",null);
+        var dinner=changed.meals().stream().filter(m -> "DINNER".equals(m.mealType())).findFirst().orElseThrow();
+        System.out.println("AFTER_DINING_OUT="+dinner.sourceType()+":"+dinner.items().stream().map(i -> i.foodName()).toList());
+        assertEquals("HOME_COOKED",dinner.sourceType());
+        assertTrue(preferences.get(id).allowDiningOut());
+    }
     @Test void varietyWithPorkPreferenceAndRepeatedRegeneration() {
         long id=users.saveAndFlush(new User(UUID.randomUUID()+"@example.test","hash")).getId();
         preferences.update(id,new PreferenceDtos.UpdateRequest(false,List.of("돼지고기"),List.of("버섯"),List.of(),PreferenceDtos.AllergyStatus.NONE,List.of()));

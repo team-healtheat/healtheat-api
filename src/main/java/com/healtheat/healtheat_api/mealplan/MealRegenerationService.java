@@ -44,12 +44,15 @@ class MealRegenerationService {
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,ex.getMessage()); }
         var factors=health.get(userId).factors().stream().filter(f -> f.active())
             .map(f -> new MealGenerationContext.HealthFactor(f.name(),f.type(),f.reportedStatus(),f.supported())).toList();
-        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),factors,preference.allergyStatus(),preference.allergens(),mealHistory.recent(userId),storage.recentDiningOut(userId,plan.planDate),storage.recentRecommendedFoods(userId,plan.planDate));
+        // An ordinary retry after dining out should offer a home-cooked alternative.
+        // Explicit chat requests still use the user's original dining-out preference.
+        boolean offerDiningOut=Boolean.TRUE.equals(preference.allowDiningOut()) && !("DINING_OUT".equals(old.sourceType) && (request==null || request.isBlank()));
+        var context=new MealGenerationContext(offerDiningOut,preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),factors,preference.allergyStatus(),preference.allergens(),mealHistory.recent(userId),storage.recentDiningOut(userId,plan.planDate),storage.recentRecommendedFoods(userId,plan.planDate));
         var input=new MealRegenerationContext(context,type,request,oldNames,otherDining);
         GeneratedMealPlan.Meal generated=null;
         for (int attempt=0; attempt<2; attempt++) {
             generated=client.regenerate(input);
-            try { validator.validateReplacement(generated,type,preference.allowDiningOut(),otherDining); break; }
+            try { validator.validateReplacement(generated,type,offerDiningOut,otherDining); break; }
             catch (MealPlanValidator.InvalidMealPlanException ex) {
                 log.warn("Meal regeneration validation failed on attempt {}: {}",attempt+1,ex.getMessage());
                 if (attempt==1) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"생성된 식단을 검증하지 못했습니다. 다시 시도해 주세요.");
