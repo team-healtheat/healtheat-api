@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -52,6 +53,37 @@ class HealthProfileIntegrationTests {
         String token = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), JwtClaimsSet.builder()
             .subject(Long.toString(id)).issuedAt(now).expiresAt(now.plusSeconds(1800)).build())).getTokenValue();
         return new Cookie("access_token", token);
+    }
+    @Test void selectedConditionsAndOtherAreSavedWithoutAiAndCanBeRemoved() throws Exception {
+        mvc.perform(get("/api/health-profiles/options").cookie(userCookie)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(12)).andExpect(jsonPath("$[0]").value("비만"));
+        String first=json.writeValueAsString(Map.of("conditions",List.of("당뇨병","통풍"),"other",List.of("당뇨병","직접 입력"),"none",false));
+        mvc.perform(put("/api/health-profiles/selection").cookie(userCookie,csrfCookie).header("X-XSRF-TOKEN",csrfToken)
+            .contentType(MediaType.APPLICATION_JSON).content(first)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.factors.length()").value(3));
+        String second=json.writeValueAsString(Map.of("conditions",List.of("당뇨병"),"other",List.of(),"none",false));
+        mvc.perform(put("/api/health-profiles/selection").cookie(userCookie,csrfCookie).header("X-XSRF-TOKEN",csrfToken)
+            .contentType(MediaType.APPLICATION_JSON).content(second)).andExpect(status().isOk());
+        mvc.perform(get("/api/health-profiles").cookie(userCookie)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.factors[?(@.name == '통풍')].active").value(org.hamcrest.Matchers.hasItem(false)));
+        mvc.perform(get("/api/health-profiles").cookie(otherCookie)).andExpect(status().isOk()).andExpect(jsonPath("$.factors.length()").value(0));
+        verifyNoInteractions(analysis);
+    }
+    @Test void noneIsExclusiveAndExplicit() throws Exception {
+        mvc.perform(get("/api/health-profiles/selection")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/health-profiles/selection").cookie(userCookie).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"conditions\":[],\"other\":[],\"none\":true}")).andExpect(status().isForbidden());
+        mvc.perform(get("/api/health-profiles/selection").cookie(userCookie)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.completed").value(false)).andExpect(jsonPath("$.none").value(false));
+        for (String body: List.of("{\"conditions\":[\"통풍\"],\"other\":[],\"none\":true}","{\"conditions\":[],\"other\":[],\"none\":false}","{\"conditions\":[\"잘못된 항목\"],\"other\":[],\"none\":false}"))
+            mvc.perform(put("/api/health-profiles/selection").cookie(userCookie,csrfCookie).header("X-XSRF-TOKEN",csrfToken)
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+        mvc.perform(put("/api/health-profiles/selection").cookie(userCookie,csrfCookie).header("X-XSRF-TOKEN",csrfToken)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"conditions\":[],\"other\":[],\"none\":true}"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/health-profiles/selection").cookie(userCookie)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.completed").value(true)).andExpect(jsonPath("$.none").value(true));
+        verifyNoInteractions(analysis);
     }
     @Test void analysisDoesNotPersistAndConfirmationIsIsolated() throws Exception {
         String name = "factor-" + UUID.randomUUID();

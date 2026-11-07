@@ -18,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class HealthProfileService {
+    private static final List<String> OPTIONS=List.of("비만", "고혈압", "당뇨병", "이상지질혈증(고지혈증)", "통풍", "만성콩팥병(만성 신장질환)", "지방간", "심혈관질환", "빈혈", "골다공증", "갑상선질환", "위식도역류질환");
     private final EntityManager entities;
     private final HealthAnalysisClient analysis;
     private final jakarta.validation.Validator validator;
@@ -38,6 +39,35 @@ public class HealthProfileService {
         var factor=entities.find(HealthFactor.class,id);
         if (factor==null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unknown health factor");
         return factor;
+    }
+    public List<String> options() { return OPTIONS; }
+    @Transactional(readOnly=true)
+    public HealthDtos.SelectionState selection(long userId) {
+        var completed=(Boolean)entities.createNativeQuery("select health_selection_completed from users where id=:id")
+            .setParameter("id",userId).getSingleResult();
+        var active=get(userId).factors().stream().filter(HealthDtos.ProfileFactor::active).toList();
+        return new HealthDtos.SelectionState(completed,completed && active.isEmpty(),active);
+    }
+    @Transactional
+    public HealthDtos.ProfileResponse select(long userId, HealthDtos.SelectionRequest request) {
+        if (request.none() && (!request.conditions().isEmpty() || !request.other().isEmpty()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"없음은 다른 항목과 함께 선택할 수 없습니다.");
+        if (!request.none() && request.conditions().isEmpty() && request.other().isEmpty())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"질환을 선택하거나 없음을 선택해 주세요.");
+        var factors=new ArrayList<HealthDtos.ConfirmedFactor>();
+        Set<String> seen=new HashSet<>();
+        for (String condition: request.conditions()) {
+            String name=condition.trim();
+            if (!OPTIONS.contains(name)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"선택할 수 없는 질환입니다.");
+            if (seen.add(name.toLowerCase(Locale.ROOT))) factors.add(new HealthDtos.ConfirmedFactor(null,name,"DIAGNOSIS","REPORTED",null,true));
+        }
+        for (String other: request.other()) {
+            String name=other.trim();
+            if (seen.add(name.toLowerCase(Locale.ROOT))) factors.add(new HealthDtos.ConfirmedFactor(null,name,"OTHER","REPORTED",name,true));
+        }
+        var result=confirm(userId,new HealthDtos.ConfirmRequest(factors));
+        entities.createNativeQuery("update users set health_selection_completed=true where id=:id").setParameter("id",userId).executeUpdate();
+        return result;
     }
     public HealthDtos.AnalysisResponse analyze(long userId, String text) {
         var result=analysis.analyze(text);
