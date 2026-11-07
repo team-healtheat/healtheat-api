@@ -17,7 +17,7 @@ class ChatController {
     private final ChatService chat;
     ChatController(ChatService chat) { this.chat=chat; }
     @PostMapping("/messages")
-    @Operation(summary="챗봇 메시지 전송",description="본인의 건강 정보로 분류된 내용은 반영 후 결과를 반환합니다.",parameters=@Parameter(name="X-XSRF-TOKEN",in=ParameterIn.HEADER,required=true))
+    @Operation(summary="챗봇 메시지 전송",description="건강정보 변경은 마이페이지에서, 식단 재추천은 식단 화면에서 처리합니다.",parameters=@Parameter(name="X-XSRF-TOKEN",in=ParameterIn.HEADER,required=true))
     ChatDtos.Response send(@AuthenticationPrincipal Jwt jwt,@Valid @RequestBody ChatDtos.MessageRequest request) {
         return chat.send(userId(jwt),request);
     }
