@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 class MealRegenerationService {
+    private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(MealRegenerationService.class);
     private static final Set<String> TYPES=Set.of("BREAKFAST","LUNCH","DINNER");
     private final EntityManager entities;
     private final MealPlanQueryService query;
@@ -43,10 +44,17 @@ class MealRegenerationService {
         catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,ex.getMessage()); }
         var factors=health.get(userId).factors().stream().filter(f -> f.active())
             .map(f -> new MealGenerationContext.HealthFactor(f.name(),f.type(),f.reportedStatus(),f.supported())).toList();
-        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),factors,preference.allergyStatus(),preference.allergens(),mealHistory.recent(userId),storage.recentDiningOut(userId,plan.planDate));
-        var generated=client.regenerate(new MealRegenerationContext(context,type,request,oldNames,otherDining));
-        try { validator.validateReplacement(generated,type,preference.allowDiningOut(),otherDining); }
-        catch (MealPlanValidator.InvalidMealPlanException ex) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"생성된 식단을 검증하지 못했습니다."); }
+        var context=new MealGenerationContext(preference.allowDiningOut(),preference.likedFoods(),preference.dislikedFoods(),preference.dietaryPreferences(),factors,preference.allergyStatus(),preference.allergens(),mealHistory.recent(userId),storage.recentDiningOut(userId,plan.planDate),storage.recentRecommendedFoods(userId,plan.planDate));
+        var input=new MealRegenerationContext(context,type,request,oldNames,otherDining);
+        GeneratedMealPlan.Meal generated=null;
+        for (int attempt=0; attempt<2; attempt++) {
+            generated=client.regenerate(input);
+            try { validator.validateReplacement(generated,type,preference.allowDiningOut(),otherDining); break; }
+            catch (MealPlanValidator.InvalidMealPlanException ex) {
+                log.warn("Meal regeneration validation failed on attempt {}: {}",attempt+1,ex.getMessage());
+                if (attempt==1) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,"생성된 식단을 검증하지 못했습니다. 다시 시도해 주세요.");
+            }
+        }
         old.current=false;
         entities.flush();
         storage.saveRecommendation(planId,generated,old.version+1);
